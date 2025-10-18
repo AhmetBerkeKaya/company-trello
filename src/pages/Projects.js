@@ -120,13 +120,13 @@ const Projects = () => {
   const getStatusClass = (status) => {
     switch (status) {
       case 'active':
-        return 'bg-green-100 text-green-800';
+        return 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-300';
       case 'completed':
-        return 'bg-gray-100 text-gray-800';
+        return 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300';
       case 'on-hold':
-        return 'bg-yellow-100 text-yellow-800';
+        return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-300';
       default:
-        return 'bg-gray-100 text-gray-800';
+        return 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300';
     }
   };
 
@@ -157,11 +157,11 @@ const Projects = () => {
   return (
     <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
       {/* Debug Bilgisi */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+      <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4 mb-6">
         <div className="flex justify-between items-center">
           <div>
-            <h3 className="text-sm font-medium text-blue-800">Debug Bilgisi</h3>
-            <p className="text-sm text-blue-600 mt-1">{debugInfo}</p>
+            <h3 className="text-sm font-medium text-blue-800 dark:text-blue-300">Debug Bilgisi</h3>
+            <p className="text-sm text-blue-600 dark:text-blue-400 mt-1">{debugInfo}</p>
           </div>
           <button
             onClick={fetchAllProjects}
@@ -176,16 +176,16 @@ const Projects = () => {
       <div className="mb-8">
         <div className="flex justify-between items-center mb-6">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Projelerim</h1>
-            <p className="text-gray-600 mt-2">
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Projelerim</h1>
+            <p className="text-gray-600 dark:text-gray-400 mt-2">
               Tüm projelerinizi buradan yönetebilirsiniz.
             </p>
           </div>
 
           {/* Proje Sayısı */}
           <div className="text-right">
-            <div className="text-2xl font-bold text-gray-900">{projects.length}</div>
-            <div className="text-sm text-gray-500">Toplam Proje</div>
+            <div className="text-2xl font-bold text-gray-900 dark:text-white">{projects.length}</div>
+            <div className="text-sm text-gray-500 dark:text-gray-400">Toplam Proje</div>
           </div>
         </div>
 
@@ -199,10 +199,11 @@ const Projects = () => {
             <button
               key={filterOption.key}
               onClick={() => setFilter(filterOption.key)}
-              className={`px-4 py-2 rounded-lg font-medium transition-colors ${filter === filterOption.key
+              className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                filter === filterOption.key
                   ? 'bg-blue-600 text-white'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
+                  : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+              }`}
             >
               {filterOption.label} ({filterOption.count})
             </button>
@@ -212,12 +213,12 @@ const Projects = () => {
 
       {/* Proje Listesi */}
       {filteredProjects.length === 0 ? (
-        <div className="bg-white rounded-lg shadow p-12 text-center">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow dark:shadow-gray-900/50 p-12 text-center">
           <div className="text-6xl mb-4">📁</div>
-          <h2 className="text-xl font-semibold text-gray-900 mb-2">
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
             {filter === 'all' ? 'Henüz hiç projeniz yok' : 'Bu filtrede proje bulunamadı'}
           </h2>
-          <p className="text-gray-600 mb-6">
+          <p className="text-gray-600 dark:text-gray-400 mb-6">
             {filter === 'all'
               ? 'İlk projenizi oluşturarak başlayın veya bir projeye davet edilmeyi bekleyin.'
               : 'Farklı bir filtre seçmeyi deneyin.'
@@ -237,12 +238,12 @@ const Projects = () => {
           {filteredProjects.map((project) => (
             <div
               key={project.id}
-              className="bg-white rounded-lg shadow hover:shadow-md transition-shadow border border-gray-200"
+              className="bg-white dark:bg-gray-800 rounded-lg shadow dark:shadow-gray-900/50 hover:shadow-md dark:hover:shadow-gray-900/70 transition-shadow border border-gray-200 dark:border-gray-700"
             >
               <div className="p-6">
                 {/* Proje Başlığı ve Durumu */}
                 <div className="flex justify-between items-start mb-3">
-                  <h3 className="text-lg font-semibold text-gray-900 line-clamp-2">
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white line-clamp-2">
                     {project.title}
                   </h3>
                   <span className={`px-2 py-1 text-xs rounded-full ${getStatusClass(project.status)}`}>
@@ -252,13 +253,13 @@ const Projects = () => {
 
                 {/* Proje Açıklaması */}
                 {project.description && (
-                  <p className="text-gray-600 text-sm mb-4 line-clamp-3">
+                  <p className="text-gray-600 dark:text-gray-400 text-sm mb-4 line-clamp-3">
                     {project.description}
                   </p>
                 )}
 
                 {/* Proje Bilgileri */}
-                <div className="space-y-2 text-sm text-gray-500">
+                <div className="space-y-2 text-sm text-gray-500 dark:text-gray-400">
                   <div className="flex justify-between">
                     <span>Üye Sayısı:</span>
                     <span className="font-medium">{project.members?.length || 1}</span>
@@ -274,13 +275,13 @@ const Projects = () => {
                   {project.createdBy === userData.id && (
                     <div className="flex justify-between">
                       <span>Rolünüz:</span>
-                      <span className="font-medium text-blue-600">Proje Sahibi</span>
+                      <span className="font-medium text-blue-600 dark:text-blue-400">Proje Sahibi</span>
                     </div>
                   )}
                 </div>
 
                 {/* Aksiyon Butonları */}
-                <div className="flex space-x-2 mt-4 pt-4 border-t border-gray-100">
+                <div className="flex space-x-2 mt-4 pt-4 border-t border-gray-100 dark:border-gray-700">
                   <button
                     onClick={() => navigate(`/projects/${project.id}`)}
                     className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 px-3 rounded text-sm font-medium transition-colors"
@@ -290,7 +291,7 @@ const Projects = () => {
 
                   <button
                     onClick={() => alert('Proje ayarları yakında eklenecek!')}
-                    className="px-3 py-2 border border-gray-300 rounded text-gray-600 hover:bg-gray-50 text-sm font-medium transition-colors"
+                    className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 text-sm font-medium transition-colors"
                   >
                     ⚙️
                   </button>

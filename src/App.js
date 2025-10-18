@@ -6,17 +6,17 @@ import PrivateRoute from './components/Layout/PrivateRoute';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Projects from './pages/Projects';
-import ProjectDetail from './pages/ProjectDetail'; // YENİ
+import ProjectDetail from './pages/ProjectDetail';
 import Meetings from './pages/Meetings';
 import './index.css';
 import AdminUsers from './pages/AdminUsers';
-import Profile from './pages/Profile'; // YENİ
+import Profile from './pages/Profile';
 
 function App() {
   return (
     <Router>
       <AuthProvider>
-        <div className="App min-h-screen bg-gray-50">
+        <div className="App min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors duration-300">
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route 
@@ -31,7 +31,7 @@ function App() {
                       <Route path="/projects/:projectId" element={<ProjectDetail />} />
                       <Route path="/meetings" element={<Meetings />} />
                       <Route path="/admin/users" element={<AdminUsers />} />
-                      <Route path="/profile" element={<Profile />} /> {/* YENİ */}
+                      <Route path="/profile" element={<Profile />} />
                     </Routes>
                   </div>
                 </PrivateRoute>
@@ -43,4 +43,5 @@ function App() {
     </Router>
   );
 }
+
 export default App;

@@ -157,7 +157,6 @@ const Dashboard = () => {
     }
   };
 
-
   // Tarih formatı
   const formatDate = (timestamp) => {
     if (!timestamp) return '';
@@ -195,10 +194,10 @@ const Dashboard = () => {
       {/* Hoş Geldiniz Mesajı */}
       <div className="flex justify-between items-center mb-8">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
             Hoş Geldiniz, {userData?.name}!
           </h1>
-          <p className="text-gray-600 mt-2">
+          <p className="text-gray-600 dark:text-gray-400 mt-2">
             {new Date().toLocaleDateString('tr-TR', { 
               weekday: 'long', 
               year: 'numeric', 
@@ -219,7 +218,7 @@ const Dashboard = () => {
         )}
       </div>
 
-      {/* İstatistik Kartları - YENİ: Türkçe başlıklar */}
+      {/* İstatistik Kartları */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
         <StatCard
           icon="📁"
@@ -250,7 +249,7 @@ const Dashboard = () => {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Son Projeler - YENİ: Türkçe başlık */}
+        {/* Son Projeler */}
         <DashboardSection
           title="Son Projelerim"
           emptyMessage="Henüz hiç projeniz yok."
@@ -261,7 +260,7 @@ const Dashboard = () => {
           viewAllLink="/projects"
         />
 
-        {/* Yaklaşan Toplantılar - YENİ: Türkçe başlık */}
+        {/* Yaklaşan Toplantılar */}
         <DashboardSection
           title="Yaklaşan Toplantılar"
           emptyMessage="Yaklaşan toplantınız yok."
@@ -273,7 +272,7 @@ const Dashboard = () => {
         />
       </div>
 
-      {/* Benim Görevlerim - YENİ: Türkçe başlık */}
+      {/* Benim Görevlerim */}
       <div className="mt-8">
         <DashboardSection
           title="Benim Görevlerim"
@@ -292,21 +291,21 @@ const Dashboard = () => {
 // İstatistik Kartı Component'i
 const StatCard = ({ icon, label, value, color, link }) => {
   const colorClasses = {
-    blue: 'bg-blue-100 text-blue-600',
-    green: 'bg-green-100 text-green-600',
-    purple: 'bg-purple-100 text-purple-600',
-    orange: 'bg-orange-100 text-orange-600'
+    blue: 'bg-blue-100 text-blue-600 dark:bg-blue-900/20 dark:text-blue-300',
+    green: 'bg-green-100 text-green-600 dark:bg-green-900/20 dark:text-green-300',
+    purple: 'bg-purple-100 text-purple-600 dark:bg-purple-900/20 dark:text-purple-300',
+    orange: 'bg-orange-100 text-orange-600 dark:bg-orange-900/20 dark:text-orange-300'
   };
 
   const content = (
-    <div className="bg-white rounded-lg shadow p-6 hover:shadow-md transition-shadow">
+    <div className="bg-white dark:bg-gray-800 rounded-lg shadow dark:shadow-gray-900/50 p-6 hover:shadow-md dark:hover:shadow-gray-900/70 transition-shadow">
       <div className="flex items-center">
         <div className={`p-3 rounded-full ${colorClasses[color]}`}>
           <span className="text-2xl">{icon}</span>
         </div>
         <div className="ml-4">
-          <p className="text-sm font-medium text-gray-600">{label}</p>
-          <p className="text-2xl font-semibold text-gray-900">{value}</p>
+          <p className="text-sm font-medium text-gray-600 dark:text-gray-400">{label}</p>
+          <p className="text-2xl font-semibold text-gray-900 dark:text-white">{value}</p>
         </div>
       </div>
     </div>
@@ -325,13 +324,13 @@ const StatCard = ({ icon, label, value, color, link }) => {
 
 // Dashboard Bölüm Component'i
 const DashboardSection = ({ title, emptyMessage, items, renderItem, viewAllLink }) => (
-  <div className="bg-white rounded-lg shadow">
-    <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
-      <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
+  <div className="bg-white dark:bg-gray-800 rounded-lg shadow dark:shadow-gray-900/50">
+    <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
+      <h2 className="text-lg font-semibold text-gray-900 dark:text-white">{title}</h2>
       {items.length > 0 && viewAllLink && (
         <Link
           to={viewAllLink}
-          className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+          className="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 font-medium"
         >
           Tümünü Gör →
         </Link>
@@ -340,7 +339,7 @@ const DashboardSection = ({ title, emptyMessage, items, renderItem, viewAllLink 
     <div className="p-6">
       {items.length === 0 ? (
         <div className="text-center py-8">
-          <p className="text-gray-500 text-sm">{emptyMessage}</p>
+          <p className="text-gray-500 dark:text-gray-400 text-sm">{emptyMessage}</p>
         </div>
       ) : (
         <div className="space-y-4">
@@ -355,26 +354,26 @@ const DashboardSection = ({ title, emptyMessage, items, renderItem, viewAllLink 
 const ProjectCard = ({ project }) => (
   <Link
     to={`/projects/${project.id}`}
-    className="block p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors group"
+    className="block p-4 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors group"
   >
     <div className="flex justify-between items-start">
       <div className="flex-1">
-        <h3 className="font-medium text-gray-900 group-hover:text-blue-600 transition-colors">
+        <h3 className="font-medium text-gray-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
           {project.title}
         </h3>
-        <p className="text-sm text-gray-600 mt-1 line-clamp-2">
+        <p className="text-sm text-gray-600 dark:text-gray-400 mt-1 line-clamp-2">
           {project.description}
         </p>
-        <div className="flex items-center mt-2 text-xs text-gray-500">
+        <div className="flex items-center mt-2 text-xs text-gray-500 dark:text-gray-500">
           <span>Oluşturulma: {project.createdAt && new Date(project.createdAt.toDate()).toLocaleDateString('tr-TR')}</span>
         </div>
       </div>
       <span className={`px-2 py-1 text-xs rounded-full ${
         project.status === 'active' 
-          ? 'bg-green-100 text-green-800'
+          ? 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-300'
           : project.status === 'completed'
-          ? 'bg-gray-100 text-gray-800'
-          : 'bg-yellow-100 text-yellow-800'
+          ? 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
+          : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-300'
       }`}>
         {project.status === 'active' ? 'Aktif' : 
          project.status === 'completed' ? 'Tamamlandı' : 'Beklemede'}
@@ -385,21 +384,21 @@ const ProjectCard = ({ project }) => (
 
 // Toplantı Kartı Component'i
 const MeetingCard = ({ meeting }) => (
-  <div className="block p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+  <div className="block p-4 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
     <div className="flex justify-between items-start">
       <div className="flex-1">
-        <h3 className="font-medium text-gray-900">{meeting.title}</h3>
-        <p className="text-sm text-gray-600 mt-1 line-clamp-2">
+        <h3 className="font-medium text-gray-900 dark:text-white">{meeting.title}</h3>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mt-1 line-clamp-2">
           {meeting.description}
         </p>
-        <div className="flex items-center mt-2 text-xs text-gray-500">
+        <div className="flex items-center mt-2 text-xs text-gray-500 dark:text-gray-500">
           <span>🕒 {meeting.startTime && new Date(meeting.startTime.toDate()).toLocaleString('tr-TR')}</span>
           {meeting.location && (
             <span className="ml-4">📍 {meeting.location}</span>
           )}
         </div>
       </div>
-      <span className="px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded-full">
+      <span className="px-2 py-1 text-xs bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-300 rounded-full">
         Planlandı
       </span>
     </div>
@@ -408,19 +407,19 @@ const MeetingCard = ({ meeting }) => (
 
 // Görev Kartı Component'i
 const TaskCard = ({ task }) => (
-  <div className="block p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+  <div className="block p-4 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
     <div className="flex justify-between items-start">
       <div className="flex-1">
-        <h3 className="font-medium text-gray-900">{task.title}</h3>
-        <p className="text-sm text-gray-600 mt-1 line-clamp-2">
+        <h3 className="font-medium text-gray-900 dark:text-white">{task.title}</h3>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mt-1 line-clamp-2">
           {task.description}
         </p>
-        <div className="flex items-center mt-2 text-xs text-gray-500">
+        <div className="flex items-center mt-2 text-xs text-gray-500 dark:text-gray-500">
           <span>Durum: </span>
           <span className={`ml-1 px-2 py-1 rounded-full ${
-            task.status === 'todo' ? 'bg-gray-100 text-gray-800' :
-            task.status === 'inProgress' ? 'bg-yellow-100 text-yellow-800' :
-            'bg-green-100 text-green-800'
+            task.status === 'todo' ? 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300' :
+            task.status === 'inProgress' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-300' :
+            'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-300'
           }`}>
             {task.status === 'todo' ? 'Yapılacak' :
              task.status === 'inProgress' ? 'Devam Ediyor' : 'Tamamlandı'}

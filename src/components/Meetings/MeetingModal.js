@@ -213,10 +213,10 @@ const MeetingModal = ({ meeting, isOpen, onClose, onSave }) => {
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg w-full max-w-2xl max-h-[90vh] overflow-hidden">
+      <div className="bg-white dark:bg-gray-800 rounded-lg w-full max-w-2xl max-h-[90vh] overflow-hidden">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-gray-200">
-          <h2 className="text-xl font-bold text-gray-900">
+        <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+          <h2 className="text-xl font-bold text-gray-900 dark:text-white">
             {isEditMode ? 'Toplantıyı Düzenle' : 'Yeni Toplantı Oluştur'}
           </h2>
         </div>
@@ -226,7 +226,7 @@ const MeetingModal = ({ meeting, isOpen, onClose, onSave }) => {
           <div className="space-y-6">
             {/* Başlık */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Toplantı Başlığı *
               </label>
               <input
@@ -234,7 +234,7 @@ const MeetingModal = ({ meeting, isOpen, onClose, onSave }) => {
                 name="title"
                 value={formData.title}
                 onChange={handleInputChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                 placeholder="Toplantı başlığını girin"
                 required
               />
@@ -242,14 +242,14 @@ const MeetingModal = ({ meeting, isOpen, onClose, onSave }) => {
 
             {/* Açıklama */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Açıklama
               </label>
               <textarea
                 name="description"
                 value={formData.description}
                 onChange={handleInputChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                 placeholder="Toplantı açıklaması"
                 rows="3"
               />
@@ -258,7 +258,7 @@ const MeetingModal = ({ meeting, isOpen, onClose, onSave }) => {
             {/* Zaman */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Başlangıç Zamanı *
                 </label>
                 <input
@@ -266,12 +266,12 @@ const MeetingModal = ({ meeting, isOpen, onClose, onSave }) => {
                   name="startTime"
                   value={formData.startTime}
                   onChange={handleInputChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                   required
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Bitiş Zamanı *
                 </label>
                 <input
@@ -279,7 +279,7 @@ const MeetingModal = ({ meeting, isOpen, onClose, onSave }) => {
                   name="endTime"
                   value={formData.endTime}
                   onChange={handleInputChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                   required
                 />
               </div>
@@ -287,7 +287,7 @@ const MeetingModal = ({ meeting, isOpen, onClose, onSave }) => {
 
             {/* Lokasyon */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Lokasyon
               </label>
               <input
@@ -295,19 +295,19 @@ const MeetingModal = ({ meeting, isOpen, onClose, onSave }) => {
                 name="location"
                 value={formData.location}
                 onChange={handleInputChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                 placeholder="Fiziksel adres veya online meeting link"
               />
             </div>
 
             {/* Katılımcılar */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Katılımcılar
               </label>
-              <div className="border border-gray-300 rounded-lg max-h-32 overflow-y-auto p-2">
+              <div className="border border-gray-300 dark:border-gray-600 rounded-lg max-h-32 overflow-y-auto p-2 bg-white dark:bg-gray-700">
                 {projectMembers.map(member => (
-                  <div key={member.id} className="flex items-center p-2 hover:bg-gray-50 rounded">
+                  <div key={member.id} className="flex items-center p-2 hover:bg-gray-50 dark:hover:bg-gray-600 rounded">
                     <input
                       type="checkbox"
                       id={`user-${member.id}`}
@@ -321,31 +321,31 @@ const MeetingModal = ({ meeting, isOpen, onClose, onSave }) => {
                       className="ml-3 flex-1 flex items-center justify-between"
                     >
                       <div>
-                        <span className="text-sm font-medium text-gray-900">
+                        <span className="text-sm font-medium text-gray-900 dark:text-white">
                           {member.name}
                           {member.id === userData.id && (
-                            <span className="ml-2 text-xs text-blue-600">(Siz)</span>
+                            <span className="ml-2 text-xs text-blue-600 dark:text-blue-400">(Siz)</span>
                           )}
                         </span>
-                        <span className="text-xs text-gray-500 ml-2 capitalize">
+                        <span className="text-xs text-gray-500 dark:text-gray-400 ml-2 capitalize">
                           ({member.role})
                         </span>
                       </div>
-                      <span className="text-xs text-gray-400">
+                      <span className="text-xs text-gray-400 dark:text-gray-500">
                         {member.department}
                       </span>
                     </label>
                   </div>
                 ))}
               </div>
-              <div className="text-xs text-gray-500 mt-1">
+              <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                 {selectedUsers.length} kişi seçildi
               </div>
             </div>
 
             {/* Gündem */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Gündem Maddeleri
               </label>
               <div className="space-y-2">
@@ -355,7 +355,7 @@ const MeetingModal = ({ meeting, isOpen, onClose, onSave }) => {
                       type="text"
                       value={item}
                       onChange={(e) => handleAgendaChange(index, e.target.value)}
-                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                       placeholder={`Gündem maddesi ${index + 1}`}
                     />
                     {formData.agenda.length > 1 && (
@@ -372,7 +372,7 @@ const MeetingModal = ({ meeting, isOpen, onClose, onSave }) => {
                 <button
                   type="button"
                   onClick={addAgendaItem}
-                  className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors text-sm"
+                  className="px-4 py-2 bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-500 transition-colors text-sm"
                 >
                   + Gündem Maddesi Ekle
                 </button>
@@ -381,12 +381,12 @@ const MeetingModal = ({ meeting, isOpen, onClose, onSave }) => {
           </div>
 
           {/* Footer */}
-          <div className="flex justify-end space-x-3 mt-6 pt-6 border-t border-gray-200">
+          <div className="flex justify-end space-x-3 mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
             <button
               type="button"
               onClick={onClose}
               disabled={loading}
-              className="px-4 py-2 text-gray-600 hover:text-gray-800 font-medium disabled:opacity-50"
+              className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-300 font-medium disabled:opacity-50"
             >
               İptal
             </button>

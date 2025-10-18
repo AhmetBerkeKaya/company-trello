@@ -2,13 +2,136 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Türkçe font ve karakter düzeltmeleri */
+/* Dark mode için global stiller */
+:root {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f9fafb;
+  --text-primary: #111827;
+  --text-secondary: #6b7280;
+  --border-color: #e5e7eb;
+}
+
+.dark {
+  --bg-primary: #111827;
+  --bg-secondary: #1f2937;
+  --text-primary: #f9fafb;
+  --text-secondary: #d1d5db;
+  --border-color: #374151;
+}
+
 body {
-  margin: 0;
-  font-family: 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 
-               'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* React Big Calendar Dark Mode */
+.dark .rbc-calendar {
+  background: #1f2937;
+  color: #f9fafb;
+}
+
+.dark .rbc-header {
+  background: #374151;
+  color: #f9fafb;
+  border-bottom: 1px solid #4b5563;
+}
+
+.dark .rbc-month-view {
+  border: 1px solid #4b5563;
+}
+
+.dark .rbc-day-bg {
+  background: #1f2937;
+  border: 1px solid #374151;
+}
+
+.dark .rbc-off-range-bg {
+  background: #111827;
+}
+
+.dark .rbc-today {
+  background-color: #374151 !important;
+}
+
+.dark .rbc-date-cell {
+  color: #f9fafb;
+}
+
+.dark .rbc-date-cell.rbc-now {
+  color: #3b82f6;
+  font-weight: bold;
+}
+
+.dark .rbc-event {
+  background: #3b82f6;
+  border: 1px solid #2563eb;
+  color: white;
+}
+
+.dark .rbc-event-content {
+  color: white;
+}
+
+.dark .rbc-toolbar {
+  color: #f9fafb;
+}
+
+.dark .rbc-toolbar button {
+  color: #f9fafb;
+  background: #374151;
+  border: 1px solid #4b5563;
+}
+
+.dark .rbc-toolbar button:hover {
+  background: #4b5563;
+}
+
+.dark .rbc-toolbar button.rbc-active {
+  background: #3b82f6;
+  color: white;
+}
+
+.dark .rbc-time-view {
+  border: 1px solid #4b5563;
+}
+
+.dark .rbc-time-header {
+  border-bottom: 1px solid #4b5563;
+}
+
+.dark .rbc-time-header-content {
+  border-left: 1px solid #4b5563;
+}
+
+.dark .rbc-time-content {
+  border-top: 1px solid #4b5563;
+}
+
+.dark .rbc-timeslot-group {
+  border-bottom: 1px solid #374151;
+}
+
+.dark .rbc-time-slot {
+  color: #9ca3af;
+}
+
+.dark .rbc-day-slot .rbc-time-slot {
+  border-top: 1px solid #374151;
+}
+
+.dark .rbc-agenda-view table.rbc-agenda-table {
+  border: 1px solid #4b5563;
+}
+
+.dark .rbc-agenda-view table.rbc-agenda-table tbody > tr > td {
+  border-bottom: 1px solid #374151;
+}
+
+.dark .rbc-agenda-view table.rbc-agenda-table thead > tr > th {
+  border-bottom: 1px solid #4b5563;
+  background: #374151;
+  color: #f9fafb;
 }
 
 /* Türkçe karakterler için optimize */

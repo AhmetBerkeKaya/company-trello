@@ -30,20 +30,20 @@ const DraggableTask = ({ task, onUpdate }) => {
       className="cursor-grab active:cursor-grabbing transition-transform"
     >
       {/* Task içeriği Column'dan gelecek */}
-      <div className="bg-white rounded-lg shadow-sm hover:shadow-md transition-all p-3 border border-gray-200 cursor-pointer">
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm hover:shadow-md dark:hover:shadow-gray-900/70 transition-all p-3 border border-gray-200 dark:border-gray-700 cursor-pointer">
         <div className="flex justify-between items-start mb-2">
-          <h4 className="font-medium text-gray-900 text-sm leading-tight">
+          <h4 className="font-medium text-gray-900 dark:text-white text-sm leading-tight">
             {task.title}
           </h4>
         </div>
         
         {task.description && (
-          <p className="text-gray-600 text-xs mb-2 line-clamp-2 leading-relaxed">
+          <p className="text-gray-600 dark:text-gray-400 text-xs mb-2 line-clamp-2 leading-relaxed">
             {task.description}
           </p>
         )}
         
-        <div className="flex justify-between items-center text-xs text-gray-400">
+        <div className="flex justify-between items-center text-xs text-gray-400 dark:text-gray-500">
           <span className="truncate">
             {task.createdAt?.toDate?.().toLocaleDateString('tr-TR')}
           </span>
@@ -61,18 +61,18 @@ const Task = ({ task, onUpdate }) => {
   return (
     <>
       <div 
-        className="bg-white rounded shadow p-3 hover:shadow-md transition-shadow cursor-pointer"
+        className="bg-white dark:bg-gray-800 rounded shadow dark:shadow-gray-900/50 p-3 hover:shadow-md dark:hover:shadow-gray-900/70 transition-shadow cursor-pointer"
         onClick={() => setShowDetailModal(true)}
       >
         <div className="flex justify-between items-start mb-2">
-          <h4 className="font-medium text-gray-900 text-sm">{task.title}</h4>
+          <h4 className="font-medium text-gray-900 dark:text-white text-sm">{task.title}</h4>
         </div>
         
         {task.description && (
-          <p className="text-gray-600 text-xs mb-2 line-clamp-2">{task.description}</p>
+          <p className="text-gray-600 dark:text-gray-400 text-xs mb-2 line-clamp-2">{task.description}</p>
         )}
         
-        <div className="flex justify-between items-center text-xs text-gray-400">
+        <div className="flex justify-between items-center text-xs text-gray-400 dark:text-gray-500">
           <span>{task.createdAt?.toDate?.().toLocaleDateString('tr-TR')}</span>
           <span>#{task.id.slice(-4)}</span>
         </div>
@@ -82,7 +82,6 @@ const Task = ({ task, onUpdate }) => {
 };
 
 // YENİ: Droppable Column component
-// DroppableColumn component'inde responsive class'ları güncelle
 const DroppableColumn = ({ column, projectId, onTaskUpdate, moveTask }) => {
   const [{ isOver }, drop] = useDrop(() => ({
     accept: ItemTypes.TASK,
@@ -96,8 +95,10 @@ const DroppableColumn = ({ column, projectId, onTaskUpdate, moveTask }) => {
     <div 
       ref={drop}
       className={`flex-shrink-0 w-full md:w-80 rounded-lg p-4 transition-colors ${
-        isOver ? 'bg-blue-100' : 'bg-gray-100'
-      }`} // YENİ: w-full md:w-80
+        isOver 
+          ? 'bg-blue-100 dark:bg-blue-900/30' 
+          : 'bg-gray-100 dark:bg-gray-800/50'
+      }`}
     >
       <Column 
         column={column} 
@@ -213,7 +214,7 @@ const Board = ({ projectId }) => {
   if (loading) {
     return (
       <div className="flex justify-center items-center h-32">
-        <div className="text-gray-500">Görevler yükleniyor...</div>
+        <div className="text-gray-500 dark:text-gray-400">Görevler yükleniyor...</div>
       </div>
     );
   }

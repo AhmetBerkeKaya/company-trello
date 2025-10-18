@@ -14,13 +14,13 @@ const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message }) => {
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-60">
-      <div className="bg-white rounded-lg p-6 w-full max-w-sm">
-        <h3 className="text-lg font-semibold text-gray-900 mb-2">{title}</h3>
-        <p className="text-gray-600 mb-6">{message}</p>
+      <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-sm">
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">{title}</h3>
+        <p className="text-gray-600 dark:text-gray-400 mb-6">{message}</p>
         <div className="flex justify-end space-x-3">
           <button
             onClick={onClose}
-            className="px-4 py-2 text-gray-600 hover:text-gray-800 font-medium"
+            className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-300 font-medium"
           >
             İptal
           </button>
@@ -106,12 +106,12 @@ const DraggableTask = ({ task, onUpdate }) => {
       {isDragging && (
         <div
           ref={dragPreview}
-          className="bg-white rounded-lg shadow-lg p-3 border-2 border-blue-500 opacity-80"
+          className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-3 border-2 border-blue-500 opacity-80"
           style={{
             transform: 'rotate(5deg)',
           }}
         >
-          <div className="font-medium text-gray-900 text-sm mb-1">
+          <div className="font-medium text-gray-900 dark:text-white text-sm mb-1">
             {task.title}
           </div>
           {assignedUser && (
@@ -119,7 +119,7 @@ const DraggableTask = ({ task, onUpdate }) => {
               <div className="w-4 h-4 bg-blue-600 rounded-full flex items-center justify-center text-white text-xs">
                 {assignedUser.name?.charAt(0)}
               </div>
-              <span className="text-xs text-gray-600">{assignedUser.name}</span>
+              <span className="text-xs text-gray-600 dark:text-gray-400">{assignedUser.name}</span>
             </div>
           )}
         </div>
@@ -132,7 +132,7 @@ const DraggableTask = ({ task, onUpdate }) => {
           opacity: isDragging ? 0 : 1,
           cursor: 'grab'
         }}
-        className={`bg-white rounded-lg shadow-sm hover:shadow-md transition-all p-3 border border-gray-200 relative group ${
+        className={`bg-white dark:bg-gray-800 rounded-lg shadow-sm hover:shadow-md dark:hover:shadow-gray-900/70 transition-all p-3 border border-gray-200 dark:border-gray-700 relative group ${
           isDragging ? 'hidden' : 'block'
         }`}
         onClick={handleClick}
@@ -147,13 +147,13 @@ const DraggableTask = ({ task, onUpdate }) => {
         </button>
 
         <div className="flex justify-between items-start mb-2">
-          <h4 className="font-medium text-gray-900 text-sm leading-tight flex-1 pr-4">
+          <h4 className="font-medium text-gray-900 dark:text-white text-sm leading-tight flex-1 pr-4">
             {task.title}
           </h4>
         </div>
         
         {task.description && (
-          <p className="text-gray-600 text-xs mb-2 line-clamp-2 leading-relaxed">
+          <p className="text-gray-600 dark:text-gray-400 text-xs mb-2 line-clamp-2 leading-relaxed">
             {task.description}
           </p>
         )}
@@ -164,13 +164,13 @@ const DraggableTask = ({ task, onUpdate }) => {
             <div className="w-5 h-5 bg-blue-600 rounded-full flex items-center justify-center text-white text-xs font-semibold flex-shrink-0">
               {assignedUser.name?.charAt(0) || 'U'}
             </div>
-            <span className="text-xs text-gray-600 truncate">
+            <span className="text-xs text-gray-600 dark:text-gray-400 truncate">
               {assignedUser.name}
             </span>
           </div>
         )}
         
-        <div className="flex justify-between items-center text-xs text-gray-400">
+        <div className="flex justify-between items-center text-xs text-gray-400 dark:text-gray-500">
           <span className="truncate">
             {task.createdAt?.toDate?.().toLocaleDateString('tr-TR')}
           </span>

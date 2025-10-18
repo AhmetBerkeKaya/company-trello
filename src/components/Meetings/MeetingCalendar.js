@@ -93,13 +93,13 @@ const MeetingCalendar = ({ meetings, onMeetingClick }) => {
   };
 
   return (
-    <div className="bg-white rounded-lg shadow p-6">
+    <div className="bg-white dark:bg-gray-800 rounded-lg shadow dark:shadow-gray-900/50 p-6">
       {/* Debug Bilgisi */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
+      <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3 mb-4">
         <div className="flex justify-between items-center">
           <div>
-            <h4 className="text-sm font-medium text-blue-800">Debug Bilgisi</h4>
-            <p className="text-sm text-blue-600">{debugInfo}</p>
+            <h4 className="text-sm font-medium text-blue-800 dark:text-blue-300">Debug Bilgisi</h4>
+            <p className="text-sm text-blue-600 dark:text-blue-400">{debugInfo}</p>
           </div>
           <button
             onClick={() => console.log('Events:', calendarEvents)}
@@ -111,18 +111,18 @@ const MeetingCalendar = ({ meetings, onMeetingClick }) => {
       </div>
 
       <div className="mb-4 flex justify-between items-center">
-        <h2 className="text-lg font-semibold text-gray-900">Toplantı Takvimi</h2>
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Toplantı Takvimi</h2>
         
         {/* Görünüm Seçenekleri */}
-        <div className="flex space-x-2 bg-gray-100 rounded-lg p-1">
+        <div className="flex space-x-2 bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
           {['month', 'week', 'day', 'agenda'].map((viewType) => (
             <button
               key={viewType}
               onClick={() => setView(viewType)}
               className={`px-3 py-1 text-sm font-medium rounded-md transition-colors capitalize ${
                 view === viewType 
-                  ? 'bg-white text-blue-600 shadow-sm' 
-                  : 'text-gray-600 hover:text-gray-800'
+                  ? 'bg-white dark:bg-gray-600 text-blue-600 dark:text-blue-400 shadow-sm' 
+                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'
               }`}
             >
               {messages[viewType] || viewType}
@@ -167,15 +167,15 @@ const MeetingCalendar = ({ meetings, onMeetingClick }) => {
       <div className="mt-4 flex flex-wrap gap-4 text-sm">
         <div className="flex items-center space-x-2">
           <div className="w-3 h-3 bg-blue-500 rounded"></div>
-          <span>Gelecek Toplantı</span>
+          <span className="text-gray-700 dark:text-gray-300">Gelecek Toplantı</span>
         </div>
         <div className="flex items-center space-x-2">
           <div className="w-3 h-3 bg-red-500 rounded"></div>
-          <span>Devam Eden</span>
+          <span className="text-gray-700 dark:text-gray-300">Devam Eden</span>
         </div>
         <div className="flex items-center space-x-2">
           <div className="w-3 h-3 bg-gray-500 rounded"></div>
-          <span>Geçmiş</span>
+          <span className="text-gray-700 dark:text-gray-300">Geçmiş</span>
         </div>
       </div>
     </div>
@@ -189,10 +189,10 @@ const CustomEvent = ({ event }) => {
   
   return (
     <div className="p-1 text-xs leading-tight">
-      <div className="font-semibold truncate">{event.title}</div>
-      <div className="truncate">{startTime} - {endTime}</div>
+      <div className="font-semibold truncate text-white">{event.title}</div>
+      <div className="truncate text-white/90">{startTime} - {endTime}</div>
       {event.location && (
-        <div className="truncate" title={event.location}>📍 {event.location}</div>
+        <div className="truncate text-white/80" title={event.location}>📍 {event.location}</div>
       )}
     </div>
   );
@@ -201,29 +201,29 @@ const CustomEvent = ({ event }) => {
 // Özelleştirilmiş Toolbar Component'i
 const CustomToolbar = ({ label, onNavigate, onView }) => {
   return (
-    <div className="flex justify-between items-center mb-4 p-2 bg-gray-50 rounded-lg">
+    <div className="flex justify-between items-center mb-4 p-2 bg-gray-50 dark:bg-gray-700 rounded-lg">
       <div className="flex space-x-2">
         <button
           onClick={() => onNavigate('PREV')}
-          className="px-3 py-1 bg-white border border-gray-300 rounded text-sm font-medium text-gray-700 hover:bg-gray-50"
+          className="px-3 py-1 bg-white dark:bg-gray-600 border border-gray-300 dark:border-gray-500 rounded text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-500"
         >
           ‹ Önceki
         </button>
         <button
           onClick={() => onNavigate('TODAY')}
-          className="px-3 py-1 bg-white border border-gray-300 rounded text-sm font-medium text-gray-700 hover:bg-gray-50"
+          className="px-3 py-1 bg-white dark:bg-gray-600 border border-gray-300 dark:border-gray-500 rounded text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-500"
         >
           Bugün
         </button>
         <button
           onClick={() => onNavigate('NEXT')}
-          className="px-3 py-1 bg-white border border-gray-300 rounded text-sm font-medium text-gray-700 hover:bg-gray-50"
+          className="px-3 py-1 bg-white dark:bg-gray-600 border border-gray-300 dark:border-gray-500 rounded text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-500"
         >
           Sonraki ›
         </button>
       </div>
       
-      <span className="text-lg font-semibold text-gray-900 capitalize">
+      <span className="text-lg font-semibold text-gray-900 dark:text-white capitalize">
         {label.toLowerCase()}
       </span>
       
