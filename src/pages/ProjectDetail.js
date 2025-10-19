@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { doc, getDoc, collection, query, where, getDocs, updateDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import LoadingSpinner from '../components/UI/LoadingSpinner';
 import Board from '../components/Kanban/Board';
@@ -16,6 +16,16 @@ const ProjectDetail = () => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [activeTab, setActiveTab] = useState('board');
+    const [projectStats, setProjectStats] = useState({
+        totalTasks: 0,
+        completedTasks: 0,
+        inProgressTasks: 0,
+        todoTasks: 0
+    });
+    const [loadingStats, setLoadingStats] = useState(false);
+    const [canEditProject, setCanEditProject] = useState(false);
+    const [showDeleteModal, setShowDeleteModal] = useState(false);
+    const [showCompleteModal, setShowCompleteModal] = useState(false);
 
     useEffect(() => {
         if (projectId) {
@@ -51,6 +61,9 @@ const ProjectDetail = () => {
 
             // Proje üyelerinin detaylarını getir
             await fetchProjectMembers(projectData.members);
+            
+            // Proje istatistiklerini getir
+            await fetchProjectStats();
 
         } catch (error) {
             console.error('Proje detay getirme hatası:', error);
@@ -66,7 +79,7 @@ const ProjectDetail = () => {
 
             const usersQuery = query(
                 collection(db, 'users'),
-                where('__name__', 'in', memberIds.slice(0, 10)) // Firestore 'in' sorgusu max 10 item
+                where('__name__', 'in', memberIds.slice(0, 10))
             );
 
             const usersSnapshot = await getDocs(usersQuery);
@@ -78,6 +91,124 @@ const ProjectDetail = () => {
             setProjectMembers(members);
         } catch (error) {
             console.error('Üyeleri getirme hatası:', error);
+        }
+    };
+
+    // Proje istatistiklerini getir
+    const fetchProjectStats = async () => {
+        if (!projectId) return;
+
+        try {
+            setLoadingStats(true);
+            
+            const stats = {
+                totalTasks: 0,
+                completedTasks: 0,
+                inProgressTasks: 0,
+                todoTasks: 0
+            };
+
+            // Projeye ait görevleri getir
+            const tasksQuery = query(
+                collection(db, 'tasks'),
+                where('projectId', '==', projectId)
+            );
+            
+            const tasksSnapshot = await getDocs(tasksQuery);
+            const tasks = tasksSnapshot.docs.map(doc => doc.data());
+            
+            stats.totalTasks = tasks.length;
+            stats.completedTasks = tasks.filter(task => task.status === 'done').length;
+            stats.inProgressTasks = tasks.filter(task => task.status === 'inProgress').length;
+            stats.todoTasks = tasks.filter(task => task.status === 'todo').length;
+
+            setProjectStats(stats);
+        } catch (error) {
+            console.error('Proje istatistikleri getirme hatası:', error);
+        } finally {
+            setLoadingStats(false);
+        }
+    };
+
+    // Proje düzenleme yetkisi kontrolü
+    useEffect(() => {
+        if (project && userData) {
+            const canEdit = userData.role === 'admin' || project.createdBy === userData.id;
+            setCanEditProject(canEdit);
+        }
+    }, [project, userData]);
+
+    // Proje durumunu güncelle
+    const handleUpdateProjectStatus = async (newStatus) => {
+        if (!canEditProject) return;
+
+        // Tamamlandı durumuna geçişte onay iste
+        if (newStatus === 'completed') {
+            setShowCompleteModal(true);
+            return;
+        }
+
+        try {
+            await updateDoc(doc(db, 'projects', projectId), {
+                status: newStatus,
+                updatedAt: new Date()
+            });
+
+            // Local state'i güncelle
+            setProject(prev => ({ ...prev, status: newStatus }));
+            
+            alert(`Proje durumu "${getStatusText(newStatus)}" olarak güncellendi!`);
+        } catch (error) {
+            console.error('Proje durumu güncelleme hatası:', error);
+            alert('Proje durumu güncellenirken hata oluştu: ' + error.message);
+        }
+    };
+
+    // Projeyi tamamlama onayı
+    const handleCompleteProject = async () => {
+        try {
+            await updateDoc(doc(db, 'projects', projectId), {
+                status: 'completed',
+                completedAt: new Date(),
+                updatedAt: new Date()
+            });
+
+            // Local state'i güncelle
+            setProject(prev => ({ ...prev, status: 'completed' }));
+            
+            setShowCompleteModal(false);
+            alert('✅ Proje başarıyla tamamlandı olarak işaretlendi!');
+        } catch (error) {
+            console.error('Proje tamamlama hatası:', error);
+            alert('Proje tamamlanırken hata oluştu: ' + error.message);
+        }
+    };
+
+    // Proje silme fonksiyonu
+    const handleDeleteProject = async () => {
+        try {
+            // Önce projeye ait tüm görevleri sil
+            const tasksQuery = query(
+                collection(db, 'tasks'),
+                where('projectId', '==', projectId)
+            );
+            const tasksSnapshot = await getDocs(tasksQuery);
+            
+            const deletePromises = tasksSnapshot.docs.map(doc => 
+                deleteDoc(doc(db, 'tasks', doc.id))
+            );
+            
+            await Promise.all(deletePromises);
+            
+            // Projeyi sil
+            await deleteDoc(doc(db, 'projects', projectId));
+            
+            setShowDeleteModal(false);
+            alert('Proje başarıyla silindi!');
+            navigate('/projects');
+        } catch (error) {
+            console.error('Proje silme hatası:', error);
+            alert('Proje silinirken hata oluştu: ' + error.message);
         }
     };
 
@@ -107,6 +238,9 @@ const ProjectDetail = () => {
                 return status;
         }
     };
+
+    // Proje tamamlandı mı kontrolü
+    const isProjectCompleted = project?.status === 'completed';
 
     if (loading) {
         return (
@@ -183,6 +317,22 @@ const ProjectDetail = () => {
                         </button>
                     </div>
                 </div>
+
+                {/* Proje Tamamlandı Uyarısı */}
+                {isProjectCompleted && (
+                    <div className="mt-4 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
+                        <div className="flex items-center">
+                            <div className="text-yellow-600 dark:text-yellow-400 mr-3">⚠️</div>
+                            <div>
+                                <h4 className="text-sm font-medium text-yellow-800 dark:text-yellow-300">Proje Tamamlandı</h4>
+                                <p className="text-sm text-yellow-700 dark:text-yellow-400 mt-1">
+                                    Bu proje tamamlandı olarak işaretlendi. Yeni görev eklenemez ve mevcut görevler düzenlenemez.
+                                    {canEditProject && ' Proje durumunu değiştirmek için ayarlar sekmesini kullanabilirsiniz.'}
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </div>
 
             {/* Tab Navigation */}
@@ -216,6 +366,9 @@ const ProjectDetail = () => {
                         <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Görev Tahtası</h2>
                         <div className="text-sm text-gray-500 dark:text-gray-400">
                             Proje: <strong>{project?.title}</strong>
+                            {isProjectCompleted && (
+                                <span className="ml-2 text-yellow-600 dark:text-yellow-400">(Tamamlandı)</span>
+                            )}
                         </div>
                     </div>
                     
@@ -268,28 +421,58 @@ const ProjectDetail = () => {
                                 <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Proje İstatistikleri</h2>
                             </div>
                             <div className="p-6">
-                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                                    <div className="text-center p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
-                                        <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">0</div>
-                                        <div className="text-sm text-gray-600 dark:text-gray-400">Toplam Görev</div>
+                                {loadingStats ? (
+                                    <div className="flex justify-center py-8">
+                                        <LoadingSpinner size="small" />
                                     </div>
-                                    <div className="text-center p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
-                                        <div className="text-2xl font-bold text-green-600 dark:text-green-400">0</div>
-                                        <div className="text-sm text-gray-600 dark:text-gray-400">Tamamlanan</div>
-                                    </div>
-                                    <div className="text-center p-4 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg">
-                                        <div className="text-2xl font-bold text-yellow-600 dark:text-yellow-400">0</div>
-                                        <div className="text-sm text-gray-600 dark:text-gray-400">Devam Eden</div>
-                                    </div>
-                                    <div className="text-center p-4 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
-                                        <div className="text-2xl font-bold text-purple-600 dark:text-purple-400">0</div>
-                                        <div className="text-sm text-gray-600 dark:text-gray-400">Yapılacak</div>
-                                    </div>
-                                </div>
-                                
-                                <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-                                    İstatistikler yakında eklenecek...
-                                </div>
+                                ) : (
+                                    <>
+                                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                                            <div className="text-center p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                                                <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">
+                                                    {projectStats.totalTasks}
+                                                </div>
+                                                <div className="text-sm text-gray-600 dark:text-gray-400">Toplam Görev</div>
+                                            </div>
+                                            <div className="text-center p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
+                                                <div className="text-2xl font-bold text-green-600 dark:text-green-400">
+                                                    {projectStats.completedTasks}
+                                                </div>
+                                                <div className="text-sm text-gray-600 dark:text-gray-400">Tamamlanan</div>
+                                            </div>
+                                            <div className="text-center p-4 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg">
+                                                <div className="text-2xl font-bold text-yellow-600 dark:text-yellow-400">
+                                                    {projectStats.inProgressTasks}
+                                                </div>
+                                                <div className="text-sm text-gray-600 dark:text-gray-400">Devam Eden</div>
+                                            </div>
+                                            <div className="text-center p-4 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
+                                                <div className="text-2xl font-bold text-purple-600 dark:text-purple-400">
+                                                    {projectStats.todoTasks}
+                                                </div>
+                                                <div className="text-sm text-gray-600 dark:text-gray-400">Yapılacak</div>
+                                            </div>
+                                        </div>
+                                        
+                                        {/* İlerleme Çubuğu */}
+                                        {projectStats.totalTasks > 0 && (
+                                            <div className="mt-6">
+                                                <div className="flex justify-between items-center mb-2">
+                                                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">İlerleme Durumu</span>
+                                                    <span className="text-sm text-gray-600 dark:text-gray-400">
+                                                        {Math.round((projectStats.completedTasks / projectStats.totalTasks) * 100)}%
+                                                    </span>
+                                                </div>
+                                                <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                                                    <div 
+                                                        className="bg-green-600 h-2 rounded-full transition-all duration-300"
+                                                        style={{ width: `${(projectStats.completedTasks / projectStats.totalTasks) * 100}%` }}
+                                                    ></div>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -297,10 +480,151 @@ const ProjectDetail = () => {
             )}
 
             {activeTab === 'settings' && (
-                <div className="bg-white dark:bg-gray-800 rounded-lg shadow dark:shadow-gray-900/50 p-8 text-center">
-                    <div className="text-6xl mb-4">⚙️</div>
-                    <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">Proje Ayarları</h2>
-                    <p className="text-gray-600 dark:text-gray-400">Proje ayarları yakında eklenecek...</p>
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow dark:shadow-gray-900/50 overflow-hidden">
+                    <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+                        <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Proje Ayarları</h2>
+                    </div>
+                    
+                    <div className="p-6">
+                        {/* Proje Durumu */}
+                        <div className="mb-6">
+                            <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">Proje Durumu</h3>
+                            
+                            <div className="flex space-x-4">
+                                {[
+                                    { value: 'active', label: 'Aktif', color: 'green', icon: '🚀' },
+                                    { value: 'on-hold', label: 'Beklemede', color: 'yellow', icon: '⏸️' },
+                                    { value: 'completed', label: 'Tamamlandı', color: 'gray', icon: '✅' }
+                                ].map(status => (
+                                    <button
+                                        key={status.value}
+                                        onClick={() => handleUpdateProjectStatus(status.value)}
+                                        disabled={project.status === status.value || !canEditProject}
+                                        className={`flex-1 p-4 border-2 rounded-lg text-center transition-colors ${
+                                            project.status === status.value
+                                                ? status.value === 'active' 
+                                                    ? 'border-green-500 bg-green-50 dark:bg-green-900/20'
+                                                    : status.value === 'on-hold'
+                                                    ? 'border-yellow-500 bg-yellow-50 dark:bg-yellow-900/20'
+                                                    : 'border-gray-500 bg-gray-50 dark:bg-gray-900/20'
+                                                : 'border-gray-300 dark:border-gray-600 hover:border-gray-400'
+                                        } ${!canEditProject ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                    >
+                                        <div className={`text-2xl mb-2 ${
+                                            status.value === 'active' ? 'text-green-600' :
+                                            status.value === 'on-hold' ? 'text-yellow-600' :
+                                            'text-gray-600'
+                                        }`}>
+                                            {status.icon}
+                                        </div>
+                                        <div className="font-medium text-gray-900 dark:text-white">{status.label}</div>
+                                        {project.status === status.value && (
+                                            <div className="text-xs text-gray-500 mt-1">Mevcut Durum</div>
+                                        )}
+                                    </button>
+                                ))}
+                            </div>
+                            
+                            {!canEditProject && (
+                                <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
+                                    * Proje durumunu değiştirmek için proje sahibi veya yönetici olmalısınız
+                                </p>
+                            )}
+                        </div>
+
+                        {/* Tehlikeli İşlemler */}
+                        {(userData.role === 'admin' || project.createdBy === userData.id) && (
+                            <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
+                                <h3 className="text-lg font-medium text-red-600 dark:text-red-400 mb-4">Tehlikeli İşlemler</h3>
+                                
+                                <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <h4 className="font-medium text-red-800 dark:text-red-300">Projeyi Sil</h4>
+                                            <p className="text-sm text-red-600 dark:text-red-400 mt-1">
+                                                Bu işlem geri alınamaz. Proje ve tüm görevler silinecek.
+                                            </p>
+                                        </div>
+                                        <button
+                                            onClick={() => setShowDeleteModal(true)}
+                                            className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg font-medium transition-colors"
+                                        >
+                                            Projeyi Sil
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {/* Silme Onay Modal'ı */}
+            {showDeleteModal && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                    <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md">
+                        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Projeyi Sil</h3>
+                        <p className="text-gray-600 dark:text-gray-400 mb-6">
+                            "{project.title}" projesini silmek istediğinizden emin misiniz? 
+                            Bu işlem geri alınamaz ve tüm görevler silinecek.
+                        </p>
+                        <div className="flex justify-end space-x-3">
+                            <button
+                                onClick={() => setShowDeleteModal(false)}
+                                className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-300 font-medium"
+                            >
+                                İptal
+                            </button>
+                            <button
+                                onClick={handleDeleteProject}
+                                className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg font-medium transition-colors"
+                            >
+                                Projeyi Sil
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Tamamlama Onay Modal'ı */}
+            {showCompleteModal && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                    <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md">
+                        <div className="text-2xl mb-4 text-center">🎉</div>
+                        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2 text-center">Projeyi Tamamla</h3>
+                        <p className="text-gray-600 dark:text-gray-400 mb-4 text-center">
+                            "{project.title}" projesini tamamlandı olarak işaretlemek üzeresiniz.
+                        </p>
+                        
+                        <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4 mb-4">
+                            <h4 className="font-medium text-yellow-800 dark:text-yellow-300 mb-2">⚠️ Önemli Uyarı</h4>
+                            <ul className="text-sm text-yellow-700 dark:text-yellow-400 space-y-1">
+                                <li>• Yeni görev <strong>eklenemez</strong></li>
+                                <li>• Mevcut görevler <strong>düzenlenemez</strong></li>
+                                <li>• Görevler <strong>taşınamaz</strong></li>
+                                <li>• Proje sadece <strong>okuma modunda</strong> olacak</li>
+                            </ul>
+                        </div>
+
+                        <p className="text-sm text-gray-500 dark:text-gray-400 mb-6 text-center">
+                            Bu işlemi onaylıyor musunuz?
+                        </p>
+
+                        <div className="flex justify-end space-x-3">
+                            <button
+                                onClick={() => setShowCompleteModal(false)}
+                                className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-300 font-medium"
+                            >
+                                İptal
+                            </button>
+                            <button
+                                onClick={handleCompleteProject}
+                                className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-medium transition-colors"
+                            >
+                                Evet, Projeyi Tamamla
+                            </button>
+                        </div>
+                    </div>
                 </div>
             )}
         </div>
