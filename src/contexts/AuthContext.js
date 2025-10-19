@@ -31,6 +31,21 @@ export function AuthProvider({ children }) {
   const login = async (email, password) => {
     try {
       const result = await signInWithEmailAndPassword(auth, email, password);
+
+      // Giriş başarılı olduğunda lastLoginAt alanını güncelle
+      if (result.user) {
+        const userRef = doc(db, 'users', result.user.uid);
+        await updateDoc(userRef, {
+          lastLoginAt: new Date()
+        });
+
+        // Local state'i de güncelle
+        const userDoc = await getDoc(userRef);
+        if (userDoc.exists()) {
+          setUserData(userDoc.data());
+        }
+      }
+
       return result;
     } catch (error) {
       console.error('Login error:', error);
@@ -53,7 +68,7 @@ export function AuthProvider({ children }) {
         role: userData.role || 'user',
         department: userData.department || '',
         createdAt: new Date(),
-        lastLogin: new Date()
+        lastLoginAt: new Date() // lastLogin yerine lastLoginAt kullan
       };
 
       await setDoc(doc(db, 'users', result.user.uid), userDoc);

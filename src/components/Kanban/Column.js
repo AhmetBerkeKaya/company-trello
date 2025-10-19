@@ -1,13 +1,50 @@
-import React, { useState } from 'react';
-import { collection, addDoc } from 'firebase/firestore';
+import React, { useState, useEffect } from 'react';
+import { collection, addDoc, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../../firebase/config';
 import { useAuth } from '../../contexts/AuthContext';
-import Task from './Task'; // YENİ: Task component'ini import et
+import Task from './Task';
 
 const Column = ({ column, projectId, onTaskUpdate, TaskComponent }) => {
   const { userData } = useAuth();
   const [isAddingTask, setIsAddingTask] = useState(false);
   const [newTaskTitle, setNewTaskTitle] = useState('');
+  const [newTaskAssignee, setNewTaskAssignee] = useState('');
+  const [projectMembers, setProjectMembers] = useState([]);
+  const [loadingMembers, setLoadingMembers] = useState(false);
+
+  // Proje üyelerini getir
+  useEffect(() => {
+    if (isAddingTask && projectId) {
+      fetchProjectMembers();
+    }
+  }, [isAddingTask, projectId]);
+
+  const fetchProjectMembers = async () => {
+    try {
+      setLoadingMembers(true);
+      const projectDoc = await getDoc(doc(db, 'projects', projectId));
+      const projectData = projectDoc.data();
+
+      if (projectData?.members) {
+        const usersQuery = query(
+          collection(db, 'users'),
+          where('__name__', 'in', projectData.members.slice(0, 10))
+        );
+
+        const usersSnapshot = await getDocs(usersQuery);
+        const members = usersSnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
+
+        setProjectMembers(members);
+      }
+    } catch (error) {
+      console.error('Üyeleri getirme hatası:', error);
+    } finally {
+      setLoadingMembers(false);
+    }
+  };
 
   const handleAddTask = async () => {
     if (!newTaskTitle.trim()) return;
@@ -18,7 +55,7 @@ const Column = ({ column, projectId, onTaskUpdate, TaskComponent }) => {
         description: '',
         status: column.id,
         projectId: projectId,
-        assignee: userData.id,
+        assignee: newTaskAssignee || userData.id, // Atanan kişi veya kendisi
         createdBy: userData.id,
         createdAt: new Date(),
         updatedAt: new Date()
@@ -27,6 +64,7 @@ const Column = ({ column, projectId, onTaskUpdate, TaskComponent }) => {
       await addDoc(collection(db, 'tasks'), newTask);
       
       setNewTaskTitle('');
+      setNewTaskAssignee('');
       setIsAddingTask(false);
       onTaskUpdate();
     } catch (error) {
@@ -60,6 +98,32 @@ const Column = ({ column, projectId, onTaskUpdate, TaskComponent }) => {
             className="w-full px-3 py-2 border border-gray-300 rounded text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
             autoFocus
           />
+          
+          {/* Atanan Kişi Seçimi - Sadece Admin ve Proje Yöneticisi için */}
+          {(userData?.role === 'admin' || userData?.role === 'project-manager') && (
+            <div className="mb-2">
+              <label className="block text-xs text-gray-600 mb-1">
+                Atanan Kişi:
+              </label>
+              <select
+                value={newTaskAssignee}
+                onChange={(e) => setNewTaskAssignee(e.target.value)}
+                className="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">Kendim</option>
+                {loadingMembers ? (
+                  <option value="">Yükleniyor...</option>
+                ) : (
+                  projectMembers.map(member => (
+                    <option key={member.id} value={member.id}>
+                      {member.name} ({member.role === 'admin' ? 'Admin' : member.role === 'project-manager' ? 'Proje Yöneticisi' : 'Kullanıcı'})
+                    </option>
+                  ))
+                )}
+              </select>
+            </div>
+          )}
+
           <div className="flex space-x-2">
             <button
               onClick={handleAddTask}
@@ -68,7 +132,10 @@ const Column = ({ column, projectId, onTaskUpdate, TaskComponent }) => {
               Ekle
             </button>
             <button
-              onClick={() => setIsAddingTask(false)}
+              onClick={() => {
+                setIsAddingTask(false);
+                setNewTaskAssignee('');
+              }}
               className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 py-1 px-3 rounded text-sm transition-colors"
             >
               İptal
@@ -77,7 +144,7 @@ const Column = ({ column, projectId, onTaskUpdate, TaskComponent }) => {
         </div>
       )}
 
-      {/* Görev Listesi - YENİ: Task component'ini doğrudan kullan */}
+      {/* Görev Listesi */}
       <div className="space-y-3 min-h-[100px]">
         {column.tasks.map(task => (
           <Task

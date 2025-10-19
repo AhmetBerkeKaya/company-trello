@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { doc, addDoc, updateDoc, collection, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../../firebase/config';
@@ -9,6 +9,11 @@ const MeetingModal = ({ meeting, isOpen, onClose, onSave }) => {
   const [loading, setLoading] = useState(false);
   const [projectMembers, setProjectMembers] = useState([]);
   const [selectedUsers, setSelectedUsers] = useState([]);
+  const [projects, setProjects] = useState([]);
+  const [error, setError] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+
+  const modalRef = useRef();
 
   // Form state
   const [formData, setFormData] = useState({
@@ -17,6 +22,7 @@ const MeetingModal = ({ meeting, isOpen, onClose, onSave }) => {
     startTime: '',
     endTime: '',
     location: '',
+    meetingLink: '',
     projectId: '',
     agenda: ['']
   });
@@ -24,13 +30,43 @@ const MeetingModal = ({ meeting, isOpen, onClose, onSave }) => {
   // Edit modunda mı?
   const isEditMode = !!meeting;
 
+  // Modal dışına tıklayarak kapatma
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (modalRef.current && !modalRef.current.contains(event.target)) {
+        onClose();
+      }
+    };
+
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isOpen, onClose]);
+
+  // Klavye kısayolları
+  useEffect(() => {
+    const handleEscape = (event) => {
+      if (event.keyCode === 27) onClose();
+    };
+
+    if (isOpen) {
+      document.addEventListener('keydown', handleEscape);
+    }
+
+    return () => {
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [isOpen, onClose]);
+
   useEffect(() => {
     if (isOpen) {
-      // Modal açılınca proje üyelerini getir
-      fetchProjectMembers();
+      fetchProjectsAndMembers();
       
       if (isEditMode) {
-        // Edit modunda: mevcut meeting verilerini yükle
         const startTime = meeting.startTime?.toDate?.();
         const endTime = meeting.endTime?.toDate?.();
         
@@ -40,58 +76,58 @@ const MeetingModal = ({ meeting, isOpen, onClose, onSave }) => {
           startTime: startTime ? formatDateTimeForInput(startTime) : '',
           endTime: endTime ? formatDateTimeForInput(endTime) : '',
           location: meeting.location || '',
+          meetingLink: meeting.meetingLink || '',
           projectId: meeting.projectId || '',
           agenda: meeting.agenda?.length > 0 ? meeting.agenda : ['']
         });
         
         setSelectedUsers(meeting.participants || []);
       } else {
-        // Yeni toplantı: formu temizle
         setFormData({
           title: '',
           description: '',
           startTime: '',
           endTime: '',
           location: '',
+          meetingLink: '',
           projectId: '',
           agenda: ['']
         });
-        setSelectedUsers([userData.id]); // Kullanıcıyı otomatik ekle
+        setSelectedUsers([userData.id]);
       }
+      setError('');
+      setSearchTerm('');
     }
-  }, [isOpen, meeting, userData]);
+  }, [isOpen, meeting, userData, isEditMode]);
 
-  // Tarih formatı için yardımcı fonksiyon
   const formatDateTimeForInput = (date) => {
     return date.toISOString().slice(0, 16);
   };
 
-  // Proje üyelerini getir
-  const fetchProjectMembers = async () => {
+  const fetchProjectsAndMembers = async () => {
     try {
-      // Önce projeleri getir (basit versiyon - ileride geliştirilebilir)
       const projectsQuery = query(
         collection(db, 'projects'),
         where('members', 'array-contains', userData.id)
       );
       
       const projectsSnapshot = await getDocs(projectsQuery);
-      const projects = projectsSnapshot.docs.map(doc => ({
+      const projectsList = projectsSnapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       }));
+      
+      setProjects(projectsList);
 
-      // Tüm proje üyelerini topla
       const allMemberIds = new Set();
-      projects.forEach(project => {
+      projectsList.forEach(project => {
         project.members?.forEach(memberId => allMemberIds.add(memberId));
       });
 
-      // Üye detaylarını getir
       if (allMemberIds.size > 0) {
         const usersQuery = query(
           collection(db, 'users'),
-          where('__name__', 'in', Array.from(allMemberIds).slice(0, 10))
+          where('__name__', 'in', Array.from(allMemberIds))
         );
         
         const usersSnapshot = await getDocs(usersQuery);
@@ -103,9 +139,16 @@ const MeetingModal = ({ meeting, isOpen, onClose, onSave }) => {
         setProjectMembers(members);
       }
     } catch (error) {
-      console.error('Proje üyelerini getirme hatası:', error);
+      console.error('Proje ve üye getirme hatası:', error);
+      setError('Proje ve üye bilgileri yüklenirken hata oluştu');
     }
   };
+
+  const filteredMembers = projectMembers.filter(member =>
+    member.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    member.department?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    member.role?.toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
   // Form input'larını handle et
   const handleInputChange = (e) => {
@@ -116,7 +159,6 @@ const MeetingModal = ({ meeting, isOpen, onClose, onSave }) => {
     }));
   };
 
-  // Agenda item'ını güncelle
   const handleAgendaChange = (index, value) => {
     const newAgenda = [...formData.agenda];
     newAgenda[index] = value;
@@ -126,7 +168,6 @@ const MeetingModal = ({ meeting, isOpen, onClose, onSave }) => {
     }));
   };
 
-  // Yeni agenda item'ı ekle
   const addAgendaItem = () => {
     setFormData(prev => ({
       ...prev,
@@ -134,7 +175,6 @@ const MeetingModal = ({ meeting, isOpen, onClose, onSave }) => {
     }));
   };
 
-  // Agenda item'ını sil
   const removeAgendaItem = (index) => {
     if (formData.agenda.length > 1) {
       const newAgenda = formData.agenda.filter((_, i) => i !== index);
@@ -145,24 +185,42 @@ const MeetingModal = ({ meeting, isOpen, onClose, onSave }) => {
     }
   };
 
-  // Kullanıcı seçimini handle et
   const handleUserSelection = (userId) => {
     setSelectedUsers(prev => {
       const isSelected = prev.includes(userId);
       if (isSelected) {
-        return prev.filter(id => id !== userId && id !== userData.id); // Kendi kullanıcıyı kaldıramaz
+        return prev.filter(id => id !== userId && id !== userData.id);
       } else {
         return [...prev, userId];
       }
     });
   };
 
-  // Form submit
+  const toggleSelectAll = () => {
+    if (selectedUsers.length === filteredMembers.length + 1) {
+      setSelectedUsers([userData.id]);
+    } else {
+      const allUserIds = filteredMembers.map(member => member.id);
+      setSelectedUsers([...new Set([...allUserIds, userData.id])]);
+    }
+  };
+
+  const generateMeetingLink = () => {
+    const randomId = Math.random().toString(36).substring(2, 15);
+    const baseUrl = 'https://meet.google.com/';
+    const meetingCode = `${randomId.slice(0, 3)}-${randomId.slice(3, 7)}-${randomId.slice(7, 11)}`;
+    setFormData(prev => ({
+      ...prev,
+      meetingLink: `${baseUrl}${meetingCode}`
+    }));
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setError('');
     
     if (!formData.title.trim() || !formData.startTime || !formData.endTime) {
-      alert('Lütfen zorunlu alanları doldurun (Başlık, Başlangıç ve Bitiş zamanı)');
+      setError('Lütfen zorunlu alanları doldurun (Başlık, Başlangıç ve Bitiş zamanı)');
       return;
     }
 
@@ -170,7 +228,13 @@ const MeetingModal = ({ meeting, isOpen, onClose, onSave }) => {
     const endTime = new Date(formData.endTime);
 
     if (endTime <= startTime) {
-      alert('Bitiş zamanı başlangıç zamanından sonra olmalıdır');
+      setError('Bitiş zamanı başlangıç zamanından sonra olmalıdır');
+      return;
+    }
+
+    const now = new Date();
+    if (startTime < now && !isEditMode) {
+      setError('Başlangıç zamanı geçmiş bir tarih olamaz');
       return;
     }
 
@@ -183,27 +247,27 @@ const MeetingModal = ({ meeting, isOpen, onClose, onSave }) => {
         startTime: startTime,
         endTime: endTime,
         location: formData.location,
-        participants: [...new Set([...selectedUsers, userData.id])], // Kendi kullanıcıyı da ekle
+        meetingLink: formData.meetingLink,
+        projectId: formData.projectId || null,
+        participants: [...new Set([...selectedUsers, userData.id])],
         organizer: userData.id,
         agenda: formData.agenda.filter(item => item.trim() !== ''),
-        createdAt: new Date(),
+        createdAt: isEditMode ? meeting.createdAt : new Date(),
         updatedAt: new Date()
       };
 
       if (isEditMode) {
-        // Güncelleme
         await updateDoc(doc(db, 'meetings', meeting.id), meetingData);
       } else {
-        // Yeni toplantı
         await addDoc(collection(db, 'meetings'), meetingData);
       }
 
-      onSave(); // Listeyi yenile
-      onClose(); // Modal'ı kapat
+      onSave();
+      onClose();
       
     } catch (error) {
       console.error('Toplantı kaydetme hatası:', error);
-      alert('Toplantı kaydedilirken bir hata oluştu: ' + error.message);
+      setError('Toplantı kaydedilirken bir hata oluştu: ' + error.message);
     } finally {
       setLoading(false);
     }
@@ -212,17 +276,31 @@ const MeetingModal = ({ meeting, isOpen, onClose, onSave }) => {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white dark:bg-gray-800 rounded-lg w-full max-w-2xl max-h-[90vh] overflow-hidden">
-        {/* Header */}
-        <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div 
+        ref={modalRef}
+        className="bg-white dark:bg-gray-800 rounded-lg w-full max-w-2xl max-h-[90vh] overflow-hidden"
+      >
+        <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
           <h2 className="text-xl font-bold text-gray-900 dark:text-white">
             {isEditMode ? 'Toplantıyı Düzenle' : 'Yeni Toplantı Oluştur'}
           </h2>
+          <button
+            onClick={onClose}
+            className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300 text-2xl font-bold"
+            aria-label="Kapat"
+          >
+            ×
+          </button>
         </div>
 
-        {/* Form */}
         <form onSubmit={handleSubmit} className="p-6 overflow-y-auto max-h-[70vh]">
+          {error && (
+            <div className="mb-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+              {error}
+            </div>
+          )}
+
           <div className="space-y-6">
             {/* Başlık */}
             <div>
@@ -253,6 +331,29 @@ const MeetingModal = ({ meeting, isOpen, onClose, onSave }) => {
                 placeholder="Toplantı açıklaması"
                 rows="3"
               />
+            </div>
+
+            {/* Proje Seçimi */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Proje
+              </label>
+              <select
+                name="projectId"
+                value={formData.projectId}
+                onChange={handleInputChange}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+              >
+                <option value="">Proje Seçin</option>
+                {projects.map(project => (
+                  <option key={project.id} value={project.id}>
+                    {project.title}
+                  </option>
+                ))}
+              </select>
+              <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                Toplantıyı bir projeye bağlayabilirsiniz
+              </div>
             </div>
 
             {/* Zaman */}
@@ -288,7 +389,7 @@ const MeetingModal = ({ meeting, isOpen, onClose, onSave }) => {
             {/* Lokasyon */}
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Lokasyon
+                Fiziksel Lokasyon
               </label>
               <input
                 type="text"
@@ -296,17 +397,65 @@ const MeetingModal = ({ meeting, isOpen, onClose, onSave }) => {
                 value={formData.location}
                 onChange={handleInputChange}
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                placeholder="Fiziksel adres veya online meeting link"
+                placeholder="Ofis, Toplantı Odası, vs."
               />
+            </div>
+
+            {/* Toplantı Linki */}
+            <div>
+              <div className="flex justify-between items-center mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Online Toplantı Linki
+                </label>
+                <button
+                  type="button"
+                  onClick={generateMeetingLink}
+                  className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
+                >
+                  Link Oluştur
+                </button>
+              </div>
+              <input
+                type="url"
+                name="meetingLink"
+                value={formData.meetingLink}
+                onChange={handleInputChange}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                placeholder="https://meet.google.com/xxx-xxxx-xxx"
+              />
+              <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                Google Meet, Zoom, Teams vb. online toplantı linki
+              </div>
             </div>
 
             {/* Katılımcılar */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Katılımcılar
-              </label>
-              <div className="border border-gray-300 dark:border-gray-600 rounded-lg max-h-32 overflow-y-auto p-2 bg-white dark:bg-gray-700">
-                {projectMembers.map(member => (
+              <div className="flex justify-between items-center mb-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Katılımcılar
+                </label>
+                <button
+                  type="button"
+                  onClick={toggleSelectAll}
+                  className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
+                >
+                  {selectedUsers.length === filteredMembers.length + 1 ? 'Tümünü Kaldır' : 'Tümünü Seç'}
+                </button>
+              </div>
+              
+              {/* Arama */}
+              <div className="mb-2">
+                <input
+                  type="text"
+                  placeholder="İsim, departman veya rol ara..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                />
+              </div>
+
+              <div className="border border-gray-300 dark:border-gray-600 rounded-lg max-h-48 overflow-y-auto p-2 bg-white dark:bg-gray-700">
+                {filteredMembers.map(member => (
                   <div key={member.id} className="flex items-center p-2 hover:bg-gray-50 dark:hover:bg-gray-600 rounded">
                     <input
                       type="checkbox"
@@ -314,29 +463,34 @@ const MeetingModal = ({ meeting, isOpen, onClose, onSave }) => {
                       checked={selectedUsers.includes(member.id)}
                       onChange={() => handleUserSelection(member.id)}
                       className="h-4 w-4 text-blue-600 rounded focus:ring-blue-500"
-                      disabled={member.id === userData.id} // Kendi kullanıcı disable
+                      disabled={member.id === userData.id}
                     />
                     <label
                       htmlFor={`user-${member.id}`}
-                      className="ml-3 flex-1 flex items-center justify-between"
+                      className="ml-3 flex-1 flex items-center justify-between cursor-pointer"
                     >
-                      <div>
+                      <div className="flex items-center space-x-2">
                         <span className="text-sm font-medium text-gray-900 dark:text-white">
                           {member.name}
                           {member.id === userData.id && (
-                            <span className="ml-2 text-xs text-blue-600 dark:text-blue-400">(Siz)</span>
+                            <span className="ml-1 text-xs text-blue-600 dark:text-blue-400">(Siz)</span>
                           )}
                         </span>
-                        <span className="text-xs text-gray-500 dark:text-gray-400 ml-2 capitalize">
-                          ({member.role})
+                        <span className="text-xs text-gray-500 dark:text-gray-400 capitalize">
+                          {member.role}
                         </span>
                       </div>
-                      <span className="text-xs text-gray-400 dark:text-gray-500">
+                      <span className="text-xs text-gray-400 dark:text-gray-500 capitalize">
                         {member.department}
                       </span>
                     </label>
                   </div>
                 ))}
+                {filteredMembers.length === 0 && (
+                  <div className="text-center text-sm text-gray-500 dark:text-gray-400 py-4">
+                    {searchTerm ? 'Aranan kriterlere uygun katılımcı bulunamadı' : 'Katılımcı bulunamadı'}
+                  </div>
+                )}
               </div>
               <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                 {selectedUsers.length} kişi seçildi
@@ -363,6 +517,7 @@ const MeetingModal = ({ meeting, isOpen, onClose, onSave }) => {
                         type="button"
                         onClick={() => removeAgendaItem(index)}
                         className="px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                        aria-label="Gündem maddesini sil"
                       >
                         Sil
                       </button>
@@ -386,7 +541,7 @@ const MeetingModal = ({ meeting, isOpen, onClose, onSave }) => {
               type="button"
               onClick={onClose}
               disabled={loading}
-              className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-300 font-medium disabled:opacity-50"
+              className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-300 font-medium disabled:opacity-50 transition-colors"
             >
               İptal
             </button>

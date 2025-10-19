@@ -195,8 +195,10 @@ const AdminUsers = () => {
                         <span>🏢 {user.department}</span>
                       )}
                       <span>📅 {user.createdAt?.toDate?.().toLocaleDateString('tr-TR') || 'Bilinmiyor'}</span>
-                      {user.lastLogin && (
-                        <span>🔐 {user.lastLogin?.toDate?.().toLocaleDateString('tr-TR')}</span>
+                      {user.lastLoginAt && (
+                        <span>🔐 {user.lastLoginAt?.toDate?.().toLocaleDateString('tr-TR') || 
+                                 user.lastLoginAt?.toLocaleDateString?.('tr-TR') || 
+                                 'Hiç giriş yapmamış'}</span>
                       )}
                     </div>
                   </div>

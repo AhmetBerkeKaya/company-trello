@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useDrag } from 'react-dnd';
-import { doc, getDoc, deleteDoc } from 'firebase/firestore'; // YENİ: deleteDoc eklendi
+import { doc, getDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '../../firebase/config';
 import TaskDetailModal from './TaskDetailModal';
 
@@ -8,7 +8,7 @@ const ItemTypes = {
   TASK: 'task'
 };
 
-// Basit Confirm Modal Component - YENİ
+// Basit Confirm Modal Component
 const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message }) => {
   if (!isOpen) return null;
 
@@ -39,7 +39,7 @@ const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message }) => {
 // Draggable Task Component
 const DraggableTask = ({ task, onUpdate }) => {
   const [showDetailModal, setShowDetailModal] = useState(false);
-  const [showDeleteModal, setShowDeleteModal] = useState(false); // YENİ: Delete modal state
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [assignedUser, setAssignedUser] = useState(null);
 
   // Drag configuration
@@ -73,12 +73,12 @@ const DraggableTask = ({ task, onUpdate }) => {
     }
   };
 
-  // YENİ: Görev silme fonksiyonu
+  // Görev silme fonksiyonu
   const handleDeleteTask = async () => {
     try {
       await deleteDoc(doc(db, 'tasks', task.id));
       setShowDeleteModal(false);
-      onUpdate(); // Listeyi yenile
+      onUpdate();
       console.log('✅ Görev silindi:', task.id);
     } catch (error) {
       console.error('❌ Görev silme hatası:', error);
@@ -94,9 +94,9 @@ const DraggableTask = ({ task, onUpdate }) => {
     setShowDetailModal(true);
   };
 
-  // YENİ: Sil butonuna tıklama - event propagation'ı durdur
+  // Sil butonuna tıklama - event propagation'ı durdur
   const handleDeleteClick = (e) => {
-    e.stopPropagation(); // Modal'ın açılmasını engelle
+    e.stopPropagation();
     setShowDeleteModal(true);
   };
 
@@ -137,7 +137,7 @@ const DraggableTask = ({ task, onUpdate }) => {
         }`}
         onClick={handleClick}
       >
-        {/* YENİ: Sil butonu - hover'da görünecek */}
+        {/* Sil butonu - hover'da görünecek */}
         <button
           onClick={handleDeleteClick}
           className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600 shadow-md z-10"
@@ -158,13 +158,13 @@ const DraggableTask = ({ task, onUpdate }) => {
           </p>
         )}
         
-        {/* Atanan Kişi */}
+        {/* Atanan Kişi - Daha Belirgin */}
         {assignedUser && (
-          <div className="flex items-center space-x-2 mb-2">
+          <div className="flex items-center space-x-2 mb-2 p-1 bg-blue-50 dark:bg-blue-900/20 rounded">
             <div className="w-5 h-5 bg-blue-600 rounded-full flex items-center justify-center text-white text-xs font-semibold flex-shrink-0">
               {assignedUser.name?.charAt(0) || 'U'}
             </div>
-            <span className="text-xs text-gray-600 dark:text-gray-400 truncate">
+            <span className="text-xs text-blue-700 dark:text-blue-300 font-medium truncate">
               {assignedUser.name}
             </span>
           </div>
@@ -186,7 +186,7 @@ const DraggableTask = ({ task, onUpdate }) => {
         onUpdate={onUpdate}
       />
 
-      {/* YENİ: Silme Onay Modal'ı */}
+      {/* Silme Onay Modal'ı */}
       <ConfirmModal
         isOpen={showDeleteModal}
         onClose={() => setShowDeleteModal(false)}

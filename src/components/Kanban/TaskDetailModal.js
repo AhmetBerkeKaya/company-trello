@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { doc, updateDoc, collection, addDoc, getDocs, query, where, getDoc, deleteDoc } from 'firebase/firestore'; // YENİ: deleteDoc eklendiimport { db } from '../../firebase/config';
+import { doc, updateDoc, collection, addDoc, getDocs, query, where, getDoc, deleteDoc } from 'firebase/firestore';
+import { db } from '../../firebase/config';
 import LoadingSpinner from '../UI/LoadingSpinner';
 import FileUpload from './FileUpload';
 
-// YENİ: Confirm Modal (aynısını buraya da ekleyebiliriz veya ayrı component yapabiliriz)
+// Confirm Modal
 const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message }) => {
   if (!isOpen) return null;
 
@@ -37,19 +38,19 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate }) => {
   const [activeTab, setActiveTab] = useState('details');
   const [title, setTitle] = useState(task?.title || '');
   const [description, setDescription] = useState(task?.description || '');
-  const [assignee, setAssignee] = useState(task?.assignee || ''); // YENİ: Atanan kişi state'i
+  const [assignee, setAssignee] = useState(task?.assignee || '');
   const [comments, setComments] = useState([]);
   const [newComment, setNewComment] = useState('');
   const [loading, setLoading] = useState(false);
   const [projectMembers, setProjectMembers] = useState([]);
-  const [assignedUser, setAssignedUser] = useState(null); // YENİ: Atanan kullanıcı detayları
-  const [showDeleteModal, setShowDeleteModal] = useState(false); // YENİ: Delete modal state
+  const [assignedUser, setAssignedUser] = useState(null);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
 
   useEffect(() => {
     if (task && isOpen) {
       setTitle(task.title);
       setDescription(task.description || '');
-      setAssignee(task.assignee || ''); // YENİ: Atanan kişiyi set et
+      setAssignee(task.assignee || '');
       fetchComments();
       fetchProjectMembers();
       if (task.assignee) {
@@ -57,13 +58,14 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate }) => {
       }
     }
   }, [task, isOpen]);
+
   const handleDeleteTask = async () => {
     try {
       setLoading(true);
       await deleteDoc(doc(db, 'tasks', task.id));
       setShowDeleteModal(false);
-      onClose(); // Modal'ı kapat
-      onUpdate(); // Listeyi yenile
+      onClose();
+      onUpdate();
       console.log('✅ Görev silindi:', task.id);
     } catch (error) {
       console.error('❌ Görev silme hatası:', error);
@@ -72,7 +74,8 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate }) => {
       setLoading(false);
     }
   };
-  // YENİ: Atanan kullanıcıyı getir
+
+  // Atanan kullanıcıyı getir
   const fetchAssignedUser = async (userId) => {
     try {
       const userDoc = await getDoc(doc(db, 'users', userId));
@@ -88,6 +91,7 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate }) => {
     if (!task) return;
 
     try {
+      setLoading(true);
       const commentsQuery = query(
         collection(db, 'comments'),
         where('taskId', '==', task.id),
@@ -100,9 +104,18 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate }) => {
         ...doc.data()
       }));
 
+      // İstemci tarafında sırala (Firestore index gerektirmemek için)
+      commentsData.sort((a, b) => {
+        const dateA = a.createdAt?.toDate?.() || new Date(0);
+        const dateB = b.createdAt?.toDate?.() || new Date(0);
+        return dateA - dateB; // Eskiden yeniye
+      });
+
       setComments(commentsData);
     } catch (error) {
       console.error('Yorumları getirme hatası:', error);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -140,7 +153,7 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate }) => {
       await updateDoc(doc(db, 'tasks', task.id), {
         title,
         description,
-        assignee, // YENİ: Atanan kişiyi kaydet
+        assignee,
         updatedAt: new Date()
       });
 
@@ -153,8 +166,14 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate }) => {
     }
   };
 
-  // YENİ: Atanan kişiyi değiştir
+  // Atanan kişiyi değiştir
   const handleAssigneeChange = async (userId) => {
+    // Rol kontrolü - sadece admin ve proje yöneticisi atama yapabilir
+    if (userData.role !== 'admin' && userData.role !== 'project-manager') {
+      alert('Kullanıcı atama yetkiniz yok! Sadece admin ve proje yöneticileri kullanıcı atayabilir.');
+      return;
+    }
+    
     setAssignee(userId);
     if (userId) {
       await fetchAssignedUser(userId);
@@ -167,19 +186,28 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate }) => {
     if (!newComment.trim() || !task) return;
 
     try {
+      setLoading(true);
+      
       const comment = {
         text: newComment,
         taskId: task.id,
         projectId: task.projectId,
         createdBy: userData.id,
-        createdAt: new Date()
+        createdAt: new Date(),
+        userInfo: {
+          name: userData.name,
+          role: userData.role
+        }
       };
 
       await addDoc(collection(db, 'comments'), comment);
       setNewComment('');
-      fetchComments();
+      await fetchComments();
     } catch (error) {
       console.error('Yorum ekleme hatası:', error);
+      alert('Yorum eklenirken hata oluştu: ' + error.message);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -207,7 +235,7 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate }) => {
                   {task.createdAt?.toDate?.().toLocaleDateString('tr-TR')}
                 </span>
 
-                {/* YENİ: Atanan Kişi Badge'i */}
+                {/* Atanan Kişi Badge'i */}
                 {assignedUser && (
                   <>
                     <span className="text-sm text-gray-500">•</span>
@@ -243,10 +271,11 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate }) => {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`py-3 border-b-2 font-medium text-sm transition-colors ${activeTab === tab.id
+                className={`py-3 border-b-2 font-medium text-sm transition-colors ${
+                  activeTab === tab.id
                     ? 'border-blue-500 text-blue-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700'
-                  }`}
+                }`}
               >
                 {tab.label}
               </button>
@@ -272,23 +301,58 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate }) => {
                 />
               </div>
 
-              {/* YENİ: Geliştirilmiş Atanan Kişi Seçimi */}
+              {/* Geliştirilmiş Atanan Kişi Seçimi */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Atanan Kişi
-                </label>
-                <select
-                  value={assignee}
-                  onChange={(e) => handleAssigneeChange(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="">Atanmadı</option>
-                  {projectMembers.map(member => (
-                    <option key={member.id} value={member.id}>
-                      {member.name} ({member.role}) - {member.department}
-                    </option>
-                  ))}
-                </select>
+                <div className="flex justify-between items-center mb-2">
+                  <label className="block text-sm font-medium text-gray-700">
+                    Atanan Kişi
+                  </label>
+                  {(userData.role === 'admin' || userData.role === 'project-manager') ? (
+                    <span className="text-xs text-green-600 bg-green-100 px-2 py-1 rounded">
+                      Değiştirebilirsiniz
+                    </span>
+                  ) : (
+                    <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">
+                      Sadece görüntüleme
+                    </span>
+                  )}
+                </div>
+                
+                {(userData.role === 'admin' || userData.role === 'project-manager') ? (
+                  <>
+                    <select
+                      value={assignee}
+                      onChange={(e) => handleAssigneeChange(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="">Atanmadı</option>
+                      {projectMembers.map(member => (
+                        <option key={member.id} value={member.id}>
+                          {member.name} ({member.role}) - {member.department}
+                        </option>
+                      ))}
+                    </select>
+                  </>
+                ) : (
+                  /* Sadece okuma modu - normal kullanıcılar için */
+                  <div className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50">
+                    {assignedUser ? (
+                      <div className="flex items-center space-x-3">
+                        <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white font-semibold">
+                          {assignedUser.name?.charAt(0) || 'U'}
+                        </div>
+                        <div>
+                          <div className="font-medium text-gray-900">{assignedUser.name}</div>
+                          <div className="text-sm text-gray-600">
+                            {assignedUser.role} • {assignedUser.department}
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <span className="text-gray-500">Atanmamış</span>
+                    )}
+                  </div>
+                )}
 
                 {/* Atanan Kişi Önizleme */}
                 {assignedUser && (
@@ -311,51 +375,83 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate }) => {
             </div>
           )}
 
-          {/* ... comments ve files kısımları aynı kalacak ... */}
           {activeTab === 'comments' && (
             <div className="space-y-4">
               {/* Yorum Listesi */}
-              <div className="space-y-4">
+              <div className="space-y-4 max-h-80 overflow-y-auto">
                 {comments.map(comment => (
                   <div key={comment.id} className="flex space-x-3">
-                    <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white text-sm font-semibold">
-                      {comment.createdBy?.charAt(0) || 'U'}
+                    <div className="flex-shrink-0">
+                      <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white text-sm font-semibold">
+                        {comment.userInfo?.name?.charAt(0) || comment.createdBy?.charAt(0) || 'U'}
+                      </div>
                     </div>
-                    <div className="flex-1">
+                    <div className="flex-1 min-w-0">
                       <div className="bg-gray-100 rounded-lg p-3">
-                        <p className="text-sm text-gray-900">{comment.text}</p>
+                        <div className="flex justify-between items-start mb-1">
+                          <span className="font-medium text-sm text-gray-900">
+                            {comment.userInfo?.name || 'Kullanıcı'}
+                          </span>
+                          <span className="text-xs text-gray-500">
+                            {comment.createdAt?.toDate?.().toLocaleString('tr-TR')}
+                          </span>
+                        </div>
+                        <p className="text-sm text-gray-700 whitespace-pre-wrap">{comment.text}</p>
                       </div>
-                      <div className="text-xs text-gray-500 mt-1">
-                        {comment.createdAt?.toDate?.().toLocaleString('tr-TR')}
-                      </div>
+                      {comment.userInfo?.role && (
+                        <div className="text-xs text-gray-500 mt-1">
+                          {comment.userInfo.role === 'admin' ? 'Admin' : 
+                           comment.userInfo.role === 'project-manager' ? 'Proje Yöneticisi' : 'Kullanıcı'}
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}
 
                 {comments.length === 0 && (
-                  <p className="text-gray-500 text-sm text-center py-4">
-                    Henüz yorum yok
-                  </p>
+                  <div className="text-center py-8">
+                    <div className="text-4xl mb-2">💬</div>
+                    <p className="text-gray-500 text-sm">
+                      Henüz yorum yok
+                    </p>
+                    <p className="text-gray-400 text-xs mt-1">
+                      İlk yorumu siz yapın!
+                    </p>
+                  </div>
                 )}
               </div>
 
               {/* Yeni Yorum Ekleme */}
               <div className="border-t pt-4">
-                <textarea
-                  value={newComment}
-                  onChange={(e) => setNewComment(e.target.value)}
-                  placeholder="Yorumunuzu yazın..."
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  rows="3"
-                />
-                <div className="flex justify-end mt-2">
-                  <button
-                    onClick={handleAddComment}
-                    disabled={!newComment.trim()}
-                    className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-50"
-                  >
-                    Yorum Ekle
-                  </button>
+                <div className="flex items-start space-x-3">
+                  <div className="flex-shrink-0">
+                    <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white text-sm font-semibold">
+                      {userData.name?.charAt(0) || userData.id?.charAt(0) || 'U'}
+                    </div>
+                  </div>
+                  <div className="flex-1">
+                    <textarea
+                      value={newComment}
+                      onChange={(e) => setNewComment(e.target.value)}
+                      placeholder="Yorumunuzu yazın..."
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                      rows="3"
+                      disabled={loading}
+                    />
+                    <div className="flex justify-between items-center mt-2">
+                      <span className="text-xs text-gray-500">
+                        {userData.name} ({userData.role === 'admin' ? 'Admin' : userData.role === 'project-manager' ? 'Proje Yöneticisi' : 'Kullanıcı'}) olarak yorum yapıyorsunuz
+                      </span>
+                      <button
+                        onClick={handleAddComment}
+                        disabled={!newComment.trim() || loading}
+                        className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+                      >
+                        {loading && <LoadingSpinner size="small" />}
+                        <span>Yorum Ekle</span>
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -363,7 +459,6 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate }) => {
 
           {activeTab === 'files' && (
             <div>
-              {/* YENİ: FileUpload component'i */}
               <FileUpload
                 taskId={task.id}
                 projectId={task.projectId}
@@ -392,6 +487,15 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate }) => {
           </div>
         </div>
       </div>
+
+      {/* Silme Onay Modal'ı */}
+      <ConfirmModal
+        isOpen={showDeleteModal}
+        onClose={() => setShowDeleteModal(false)}
+        onConfirm={handleDeleteTask}
+        title="Görevi Sil"
+        message={`"${task.title}" görevini silmek istediğinizden emin misiniz? Bu işlem geri alınamaz.`}
+      />
     </div>
   );
 };

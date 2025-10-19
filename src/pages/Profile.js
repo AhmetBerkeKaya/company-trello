@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { doc, updateDoc } from 'firebase/firestore';
+import { doc, updateDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import LoadingSpinner from '../components/UI/LoadingSpinner';
 
@@ -37,6 +37,15 @@ const Profile = () => {
         theme: 'light'
     });
 
+    // İstatistikler state
+    const [statistics, setStatistics] = useState({
+        activeProjects: 0,
+        completedTasks: 0,
+        totalMeetings: 0,
+        assignedTasks: 0
+    });
+    const [loadingStats, setLoadingStats] = useState(true);
+
     useEffect(() => {
         if (userData) {
             setFormData({
@@ -55,8 +64,76 @@ const Profile = () => {
             if (userData.theme) {
                 setThemeSettings({ theme: userData.theme });
             }
+
+            // İstatistikleri getir
+            fetchStatistics();
         }
     }, [userData]);
+
+    // İstatistikleri getir
+    const fetchStatistics = async () => {
+        if (!userData) return;
+
+        try {
+            setLoadingStats(true);
+            
+            const stats = {
+                activeProjects: 0,
+                completedTasks: 0,
+                totalMeetings: 0,
+                assignedTasks: 0
+            };
+
+            // Aktif projeleri say
+            const projectsQuery = query(
+                collection(db, 'projects'),
+                where('members', 'array-contains', userData.id)
+            );
+            const projectsSnapshot = await getDocs(projectsQuery);
+            stats.activeProjects = projectsSnapshot.size;
+
+            // Proje ID'lerini al
+            const projectIds = projectsSnapshot.docs.map(doc => doc.id);
+
+            // Tamamlanan görevleri say
+            if (projectIds.length > 0) {
+                const completedTasksQuery = query(
+                    collection(db, 'tasks'),
+                    where('projectId', 'in', projectIds),
+                    where('status', '==', 'done')
+                );
+                const completedTasksSnapshot = await getDocs(completedTasksQuery);
+                stats.completedTasks = completedTasksSnapshot.size;
+            }
+
+            // Atanan görevleri say
+            const assignedTasksQuery = query(
+                collection(db, 'tasks'),
+                where('assignee', '==', userData.id)
+            );
+            const assignedTasksSnapshot = await getDocs(assignedTasksQuery);
+            stats.assignedTasks = assignedTasksSnapshot.size;
+
+            // Toplantıları say (meetings koleksiyonu varsa)
+            try {
+                const meetingsQuery = query(
+                    collection(db, 'meetings'),
+                    where('participants', 'array-contains', userData.id)
+                );
+                const meetingsSnapshot = await getDocs(meetingsQuery);
+                stats.totalMeetings = meetingsSnapshot.size;
+            } catch (error) {
+                console.log('Toplantı istatistikleri getirilemedi:', error);
+                stats.totalMeetings = 0;
+            }
+
+            setStatistics(stats);
+        } catch (error) {
+            console.error('İstatistikleri getirme hatası:', error);
+        } finally {
+            setLoadingStats(false);
+        }
+    };
 
     // Profil bilgilerini güncelle
     const handleProfileUpdate = async (e) => {
@@ -247,14 +324,19 @@ const Profile = () => {
                             <div className="mt-6 space-y-3 text-left">
                                 <div className="flex justify-between text-sm">
                                     <span className="text-gray-600 dark:text-gray-400">Üye Olma:</span>
-                                    <span className="font-medium">
-                                        {userData.createdAt?.toDate?.().toLocaleDateString('tr-TR') || 'Bilinmiyor'}
+                                    <span className="font-medium text-gray-900 dark:text-white">
+                                        {userData.createdAt?.toDate?.().toLocaleDateString('tr-TR') || 
+                                         userData.createdAt?.toLocaleDateString?.('tr-TR') || 
+                                         'Bilinmiyor'}
                                     </span>
                                 </div>
                                 <div className="flex justify-between text-sm">
                                     <span className="text-gray-600 dark:text-gray-400">Son Giriş:</span>
-                                    <span className="font-medium">
-                                        {userData.lastLogin?.toDate?.().toLocaleDateString('tr-TR') || 'Hiç'}
+                                    <span className="font-medium text-gray-900 dark:text-white">
+                                        {userData.lastLoginAt?.toDate?.().toLocaleDateString('tr-TR') || 
+                                         userData.lastLoginAt?.toLocaleDateString?.('tr-TR') || 
+                                         userData.lastLogin?.toDate?.().toLocaleDateString('tr-TR') || 
+                                         'Hiç giriş yapılmamış'}
                                     </span>
                                 </div>
                             </div>
@@ -547,25 +629,57 @@ const Profile = () => {
                     {/* Rol Bazlı İstatistikler */}
                     <div className="bg-white dark:bg-gray-800 rounded-lg shadow dark:shadow-gray-900/50 p-6">
                         <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Hesap İstatistikleri</h3>
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                            <div className="text-center p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
-                                <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">0</div>
-                                <div className="text-sm text-gray-600 dark:text-gray-400">Aktif Proje</div>
+                        
+                        {loadingStats ? (
+                            <div className="flex justify-center py-4">
+                                <LoadingSpinner size="small" />
                             </div>
-                            <div className="text-center p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
-                                <div className="text-2xl font-bold text-green-600 dark:text-green-400">0</div>
-                                <div className="text-sm text-gray-600 dark:text-gray-400">Tamamlanan Görev</div>
-                            </div>
-                            <div className="text-center p-4 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
-                                <div className="text-2xl font-bold text-purple-600 dark:text-purple-400">0</div>
-                                <div className="text-sm text-gray-600 dark:text-gray-400">Katıldığım Toplantı</div>
-                            </div>
-                            <div className="text-center p-4 bg-orange-50 dark:bg-orange-900/20 rounded-lg">
-                                <div className="text-2xl font-bold text-orange-600 dark:text-orange-400">
-                                    {userData.role === 'admin' ? '👑' :
-                                        userData.role === 'manager' ? '📋' : '👤'}
+                        ) : (
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                {/* Aktif Projeler */}
+                                <div className="text-center p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                                    <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">
+                                        {statistics.activeProjects}
+                                    </div>
+                                    <div className="text-sm text-gray-600 dark:text-gray-400">Aktif Proje</div>
                                 </div>
-                                <div className="text-sm text-gray-600 dark:text-gray-400 capitalize">{getRoleLabel(userData.role)}</div>
+
+                                {/* Tamamlanan Görevler */}
+                                <div className="text-center p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
+                                    <div className="text-2xl font-bold text-green-600 dark:text-green-400">
+                                        {statistics.completedTasks}
+                                    </div>
+                                    <div className="text-sm text-gray-600 dark:text-gray-400">Tamamlanan Görev</div>
+                                </div>
+
+                                {/* Toplantılar */}
+                                <div className="text-center p-4 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
+                                    <div className="text-2xl font-bold text-purple-600 dark:text-purple-400">
+                                        {statistics.totalMeetings}
+                                    </div>
+                                    <div className="text-sm text-gray-600 dark:text-gray-400">Katıldığım Toplantı</div>
+                                </div>
+
+                                {/* Atanan Görevler */}
+                                <div className="text-center p-4 bg-orange-50 dark:bg-orange-900/20 rounded-lg">
+                                    <div className="text-2xl font-bold text-orange-600 dark:text-orange-400">
+                                        {statistics.assignedTasks}
+                                    </div>
+                                    <div className="text-sm text-gray-600 dark:text-gray-400">Atanan Görev</div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Rol Bilgisi */}
+                        <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                            <div className="flex items-center justify-center space-x-2">
+                                <span className="text-lg">
+                                    {userData.role === 'admin' ? '👑' :
+                                     userData.role === 'manager' ? '📋' : '👤'}
+                                </span>
+                                <span className="text-sm text-gray-600 dark:text-gray-400 capitalize">
+                                    {getRoleLabel(userData.role)} rolünde
+                                </span>
                             </div>
                         </div>
                     </div>
