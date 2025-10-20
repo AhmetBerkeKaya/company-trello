@@ -5,30 +5,39 @@ import { db } from '../firebase/config';
 import LoadingSpinner from '../components/UI/LoadingSpinner';
 import MeetingCalendar from '../components/Meetings/MeetingCalendar';
 import MeetingModal from '../components/Meetings/MeetingModal';
+import { useLocation } from 'react-router-dom'; // ← BU SATIRI EKLEYİN
 
 const Meetings = () => {
   const { userData } = useAuth();
+  const location = useLocation(); // ← BU SATIRI EKLEYİN
   const [meetings, setMeetings] = useState([]);
   const [showMeetingModal, setShowMeetingModal] = useState(false);
   const [selectedMeeting, setSelectedMeeting] = useState(null);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState('calendar'); // 'calendar' or 'list'
 
+  // YENİ: Location state'inden gelen view'i kontrol et
+  useEffect(() => {
+    if (location.state?.activeTab === 'agenda') {
+      setView('list'); // 'agenda' tab'ı için 'list' view'ını kullan
+    }
+  }, [location.state]);
+
+  // Mevcut useEffect'i koruyun
   useEffect(() => {
     fetchMeetings();
   }, [userData]);
 
+  // fetchMeetings fonksiyonu aynı kalacak...
   const fetchMeetings = async () => {
     if (!userData) return;
 
     try {
       setLoading(true);
 
-      // GEÇİCİ: Sadece participants ile sorgula (orderBy olmadan)
       const meetingsQuery = query(
         collection(db, 'meetings'),
         where('participants', 'array-contains', userData.id)
-        // orderBy kaldırıldı - index gerektirmesin diye
       );
 
       console.log('🔍 Meetings sorgusu hazır');
@@ -45,7 +54,6 @@ const Meetings = () => {
         };
       });
 
-      // GEÇİCİ: İstemci tarafında sırala
       meetingsData.sort((a, b) => {
         const dateA = a.startTime?.toDate?.() || new Date(0);
         const dateB = b.startTime?.toDate?.() || new Date(0);
@@ -57,7 +65,6 @@ const Meetings = () => {
     } catch (error) {
       console.error('❌ Toplantıları getirme hatası:', error);
 
-      // GEÇİCİ: Hata durumunda tüm toplantıları getir ve filtrele
       try {
         const allMeetingsSnapshot = await getDocs(collection(db, 'meetings'));
         const allMeetings = allMeetingsSnapshot.docs.map(doc => ({
@@ -65,12 +72,10 @@ const Meetings = () => {
           ...doc.data()
         }));
 
-        // İstemci tarafında filtrele
         const userMeetings = allMeetings.filter(meeting =>
           meeting.participants?.includes(userData.id)
         );
 
-        // İstemci tarafında sırala
         userMeetings.sort((a, b) => {
           const dateA = a.startTime?.toDate?.() || new Date(0);
           const dateB = b.startTime?.toDate?.() || new Date(0);
@@ -88,6 +93,7 @@ const Meetings = () => {
     }
   };
 
+  // Diğer fonksiyonlar aynı kalacak...
   const handleCreateMeeting = () => {
     setSelectedMeeting(null);
     setShowMeetingModal(true);
@@ -137,7 +143,7 @@ const Meetings = () => {
         </div>
 
         <div className="flex items-center space-x-4">
-          {/* View Toggle */}
+          {/* View Toggle - GÜNCELLENDİ */}
           <div className="bg-gray-100 dark:bg-gray-700 rounded-lg p-1 flex">
             <button
               onClick={() => setView('calendar')}
@@ -155,7 +161,7 @@ const Meetings = () => {
                   : 'text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'
                 }`}
             >
-              📋 Liste
+              📋 Ajanda
             </button>
           </div>
 
@@ -172,7 +178,7 @@ const Meetings = () => {
         </div>
       </div>
 
-      {/* İstatistik Kartları */}
+      {/* İstatistik Kartları - AYNI KALACAK */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow dark:shadow-gray-900/50 p-6">
           <div className="flex items-center">
@@ -239,7 +245,10 @@ const Meetings = () => {
       ) : (
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow dark:shadow-gray-900/50">
           <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Toplantı Listesi</h2>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Toplantı Ajandası</h2>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+              Tüm toplantılarınızın listesi
+            </p>
           </div>
           <div className="p-6">
             {/* Yaklaşan Toplantılar */}
@@ -292,7 +301,7 @@ const Meetings = () => {
   );
 };
 
-// Toplantı Listesi Item Component'i
+// MeetingListItem component'i aynı kalacak...
 const MeetingListItem = ({ meeting, onEdit }) => {
   const startTime = meeting.startTime?.toDate?.();
   const endTime = meeting.endTime?.toDate?.();

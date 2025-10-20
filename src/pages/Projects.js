@@ -4,9 +4,12 @@ import { collection, query, where, getDocs, orderBy, addDoc, serverTimestamp, up
 import { db } from '../firebase/config';
 import LoadingSpinner from '../components/UI/LoadingSpinner';
 import { useNavigate } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 
 const Projects = () => {
   const { userData } = useAuth();
+  const location = useLocation(); // ← Bu satırı ekleyelim
+  const [activeTab, setActiveTab] = useState('all'); // ← State'i isim değiştirelim
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all');
@@ -33,7 +36,17 @@ const Projects = () => {
     fetchProjects();
     fetchAllUsers();
   }, [userData, filter]);
+  // Location state'inden gelen aktif tab'ı kontrol et
+  useEffect(() => {
+    if (location.state?.activeTab) {
+      setActiveTab(location.state.activeTab);
+    }
+  }, [location.state]);
 
+  // Filtre değiştiğinde state'i güncelle
+  useEffect(() => {
+    setFilter(activeTab);
+  }, [activeTab]);
   // Proje yöneticisi değiştiğinde, onu üye listesine otomatik ekle
   useEffect(() => {
     if (newProject.projectManager && !newProject.members.includes(newProject.projectManager)) {
@@ -203,7 +216,7 @@ const Projects = () => {
       alert('Proje ayarlarını değiştirme yetkiniz yok!');
       return;
     }
-    
+
     setSelectedProject(project);
     setProjectMembers(project.members || []);
     setShowProjectSettingsModal(true);
@@ -313,11 +326,10 @@ const Projects = () => {
             <button
               key={filterOption.key}
               onClick={() => setFilter(filterOption.key)}
-              className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                filter === filterOption.key
+              className={`px-4 py-2 rounded-lg font-medium transition-colors ${filter === filterOption.key
                   ? 'bg-blue-600 text-white'
                   : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-              }`}
+                }`}
             >
               {filterOption.label} ({filterOption.count})
             </button>
@@ -400,7 +412,7 @@ const Projects = () => {
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     Proje Üyeleri
                   </label>
-                  
+
                   {/* Seçilen Üye Sayısı */}
                   <div className="mb-3 p-2 bg-blue-50 dark:bg-blue-900/20 rounded">
                     <p className="text-sm text-blue-600 dark:text-blue-400">
@@ -418,7 +430,7 @@ const Projects = () => {
                       className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white text-sm"
                     />
                   </div>
-                  
+
                   {/* Üye Listesi */}
                   <div className="space-y-2 max-h-60 overflow-y-auto border border-gray-200 dark:border-gray-600 rounded-md p-3">
                     {filteredUsers.map(user => (
@@ -449,21 +461,20 @@ const Projects = () => {
                             </p>
                           </div>
                         </div>
-                        
+
                         {/* Rol Badge */}
-                        <span className={`px-2 py-1 text-xs rounded-full ${
-                          user.role === 'admin' 
+                        <span className={`px-2 py-1 text-xs rounded-full ${user.role === 'admin'
                             ? 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-300'
-                            : user.role === 'manager' 
-                            ? 'bg-purple-100 text-purple-800 dark:bg-purple-900/20 dark:text-purple-300'
-                            : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
-                        }`}>
+                            : user.role === 'manager'
+                              ? 'bg-purple-100 text-purple-800 dark:bg-purple-900/20 dark:text-purple-300'
+                              : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
+                          }`}>
                           {user.role === 'admin' ? 'Admin' : user.role === 'manager' ? 'Proje Yöneticisi' : 'Kullanıcı'}
                         </span>
                       </div>
                     ))}
                   </div>
-                  
+
                   {/* Toplu Seçim Butonları */}
                   <div className="flex space-x-2 mt-3">
                     <button
@@ -492,11 +503,11 @@ const Projects = () => {
                       Seçimi Temizle
                     </button>
                   </div>
-                  
+
                   {/* Bilgilendirme */}
                   <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
                     • Proje yöneticisi otomatik olarak üye olarak eklenecek
-                    <br/>
+                    <br />
                     • İstediğiniz kullanıcıları işaretleyerek projeye ekleyebilirsiniz
                   </p>
                 </div>
