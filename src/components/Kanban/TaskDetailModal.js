@@ -34,7 +34,7 @@ const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message }) => {
   );
 };
 
-const TaskDetailModal = ({ task, isOpen, onClose, onUpdate }) => {
+const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, canEdit }) => { // YENİ: canEdit prop'u eklendi
   const { userData } = useAuth();
   const [activeTab, setActiveTab] = useState('details');
   const [title, setTitle] = useState(task?.title || '');
@@ -46,6 +46,10 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate }) => {
   const [projectMembers, setProjectMembers] = useState([]);
   const [assignedUser, setAssignedUser] = useState(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+
+  // YENİ: Kullanıcı yetkisi kontrolleri
+  const canDeleteTask = userData?.role === 'admin' || userData?.role === 'manager';
+  const canAssignUser = userData?.role === 'admin' || userData?.role === 'manager';
 
   useEffect(() => {
     if (task && isOpen) {
@@ -148,7 +152,7 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate }) => {
 
   // handleSave fonksiyonunu şu şekilde güncelleyin:
   const handleSave = async () => {
-    if (!task) return;
+    if (!task || !canEdit) return; // YENİ: canEdit kontrolü
 
     setLoading(true);
     try {
@@ -214,8 +218,8 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate }) => {
 
   // Atanan kişiyi değiştir
   const handleAssigneeChange = async (userId) => {
-    // Rol kontrolü - sadece admin ve proje yöneticisi atama yapabilir
-    if (userData.role !== 'admin' && userData.role !== 'manager') {
+    // YENİ: canAssignUser kontrolü
+    if (!canAssignUser) {
       alert('Kullanıcı atama yetkiniz yok! Sadece admin ve proje yöneticileri kullanıcı atayabilir.');
       return;
     }
@@ -266,12 +270,18 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate }) => {
         <div className="px-6 py-4 border-b border-gray-200">
           <div className="flex justify-between items-start">
             <div className="flex-1">
-              <input
-                type="text"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                className="text-xl font-bold text-gray-900 w-full border-none focus:outline-none focus:ring-0"
-              />
+              {/* YENİ: canEdit kontrolü - Sadece yetkililer input'u kullanabilir */}
+              {canEdit ? (
+                <input
+                  type="text"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  className="text-xl font-bold text-gray-900 w-full border-none focus:outline-none focus:ring-0"
+                  placeholder="Görev başlığı..."
+                />
+              ) : (
+                <h2 className="text-xl font-bold text-gray-900">{title}</h2>
+              )}
               <div className="flex items-center space-x-2 mt-1">
                 <span className="text-sm text-gray-500">
                   #{task.id.slice(-6)}
@@ -337,13 +347,24 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate }) => {
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Açıklama
                 </label>
-                <textarea
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  rows="4"
-                  placeholder="Görev açıklaması..."
-                />
+                {/* YENİ: canEdit kontrolü - Sadece yetkililer textarea'yı kullanabilir */}
+                {canEdit ? (
+                  <textarea
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    rows="4"
+                    placeholder="Görev açıklaması..."
+                  />
+                ) : (
+                  <div className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 min-h-[100px]">
+                    {description ? (
+                      <p className="text-gray-700 whitespace-pre-wrap">{description}</p>
+                    ) : (
+                      <p className="text-gray-500 italic">Açıklama yok</p>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Geliştirilmiş Atanan Kişi Seçimi */}
@@ -352,7 +373,7 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate }) => {
                   <label className="block text-sm font-medium text-gray-700">
                     Atanan Kişi
                   </label>
-                  {(userData.role === 'admin' || userData.role === 'manager') ? (
+                  {canAssignUser ? (
                     <span className="text-xs text-green-600 bg-green-100 px-2 py-1 rounded">
                       Değiştirebilirsiniz
                     </span>
@@ -363,7 +384,7 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate }) => {
                   )}
                 </div>
 
-                {(userData.role === 'admin' || userData.role === 'manager') ? (
+                {canAssignUser ? (
                   <>
                     <select
                       value={assignee}
@@ -512,35 +533,54 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate }) => {
           )}
         </div>
 
-        {/* Footer */}
+        {/* Footer - YENİ: canEdit kontrolü */}
         <div className="px-6 py-4 border-t border-gray-200 bg-gray-50">
-          <div className="flex justify-end space-x-3">
-            <button
-              onClick={onClose}
-              className="px-4 py-2 text-gray-600 hover:text-gray-800 font-medium"
-            >
-              İptal
-            </button>
-            <button
-              onClick={handleSave}
-              disabled={loading || !title.trim()}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-50 flex items-center space-x-2"
-            >
-              {loading && <LoadingSpinner size="small" />}
-              <span>Kaydet</span>
-            </button>
+          <div className="flex justify-between items-center">
+            {/* YENİ: Sil butonu sadece yetkililer için */}
+            {canDeleteTask && (
+              <button
+                onClick={() => setShowDeleteModal(true)}
+                className="px-4 py-2 text-red-600 hover:text-red-800 font-medium flex items-center space-x-2"
+              >
+                <span>🗑️</span>
+                <span>Görevi Sil</span>
+              </button>
+            )}
+            
+            <div className="flex space-x-3 ml-auto">
+              <button
+                onClick={onClose}
+                className="px-4 py-2 text-gray-600 hover:text-gray-800 font-medium"
+              >
+                {canEdit ? 'İptal' : 'Kapat'}
+              </button>
+              
+              {/* YENİ: Kaydet butonu sadece yetkililer için */}
+              {canEdit && (
+                <button
+                  onClick={handleSave}
+                  disabled={loading || !title.trim()}
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-50 flex items-center space-x-2"
+                >
+                  {loading && <LoadingSpinner size="small" />}
+                  <span>Kaydet</span>
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Silme Onay Modal'ı */}
-      <ConfirmModal
-        isOpen={showDeleteModal}
-        onClose={() => setShowDeleteModal(false)}
-        onConfirm={handleDeleteTask}
-        title="Görevi Sil"
-        message={`"${task.title}" görevini silmek istediğinizden emin misiniz? Bu işlem geri alınamaz.`}
-      />
+      {/* Silme Onay Modal'ı - YENİ: Sadece yetkililer için */}
+      {canDeleteTask && (
+        <ConfirmModal
+          isOpen={showDeleteModal}
+          onClose={() => setShowDeleteModal(false)}
+          onConfirm={handleDeleteTask}
+          title="Görevi Sil"
+          message={`"${task.title}" görevini silmek istediğinizden emin misiniz? Bu işlem geri alınamaz.`}
+        />
+      )}
     </div>
   );
 };

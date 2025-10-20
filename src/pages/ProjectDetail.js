@@ -27,6 +27,9 @@ const ProjectDetail = () => {
     const [showDeleteModal, setShowDeleteModal] = useState(false);
     const [showCompleteModal, setShowCompleteModal] = useState(false);
 
+    // YENİ: Kullanıcı rolüne göre ayarlar sekmesini kontrol et
+    const canViewSettings = userData?.role === 'admin' || userData?.role === 'manager';
+
     useEffect(() => {
         if (projectId) {
             fetchProjectDetail();
@@ -61,7 +64,7 @@ const ProjectDetail = () => {
 
             // Proje üyelerinin detaylarını getir
             await fetchProjectMembers(projectData.members);
-            
+
             // Proje istatistiklerini getir
             await fetchProjectStats();
 
@@ -77,30 +80,41 @@ const ProjectDetail = () => {
         try {
             if (!memberIds || memberIds.length === 0) return;
 
-            const usersQuery = query(
-                collection(db, 'users'),
-                where('__name__', 'in', memberIds.slice(0, 10))
-            );
+            // Firestore kuralları izin vermiyorsa, hata yakala ve devam et
+            try {
+                const usersQuery = query(
+                    collection(db, 'users'),
+                    where('__name__', 'in', memberIds.slice(0, 10))
+                );
 
-            const usersSnapshot = await getDocs(usersQuery);
-            const members = usersSnapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data()
-            }));
+                const usersSnapshot = await getDocs(usersQuery);
+                const members = usersSnapshot.docs.map(doc => ({
+                    id: doc.id,
+                    ...doc.data()
+                }));
 
-            setProjectMembers(members);
+                setProjectMembers(members);
+            } catch (firestoreError) {
+                console.warn('Firestore üye getirme hatası, sadece ID\'ler gösterilecek:', firestoreError);
+                // Hata durumunda sadece ID'leri göster
+                const membersWithIdsOnly = memberIds.map(id => ({
+                    id: id,
+                    name: 'Kullanıcı Yüklenemedi',
+                    role: 'unknown'
+                }));
+                setProjectMembers(membersWithIdsOnly);
+            }
         } catch (error) {
             console.error('Üyeleri getirme hatası:', error);
         }
     };
-
     // Proje istatistiklerini getir
     const fetchProjectStats = async () => {
         if (!projectId) return;
 
         try {
             setLoadingStats(true);
-            
+
             const stats = {
                 totalTasks: 0,
                 completedTasks: 0,
@@ -113,10 +127,10 @@ const ProjectDetail = () => {
                 collection(db, 'tasks'),
                 where('projectId', '==', projectId)
             );
-            
+
             const tasksSnapshot = await getDocs(tasksQuery);
             const tasks = tasksSnapshot.docs.map(doc => doc.data());
-            
+
             stats.totalTasks = tasks.length;
             stats.completedTasks = tasks.filter(task => task.status === 'done').length;
             stats.inProgressTasks = tasks.filter(task => task.status === 'inProgress').length;
@@ -156,7 +170,7 @@ const ProjectDetail = () => {
 
             // Local state'i güncelle
             setProject(prev => ({ ...prev, status: newStatus }));
-            
+
             alert(`Proje durumu "${getStatusText(newStatus)}" olarak güncellendi!`);
         } catch (error) {
             console.error('Proje durumu güncelleme hatası:', error);
@@ -175,7 +189,7 @@ const ProjectDetail = () => {
 
             // Local state'i güncelle
             setProject(prev => ({ ...prev, status: 'completed' }));
-            
+
             setShowCompleteModal(false);
             alert('✅ Proje başarıyla tamamlandı olarak işaretlendi!');
         } catch (error) {
@@ -193,16 +207,16 @@ const ProjectDetail = () => {
                 where('projectId', '==', projectId)
             );
             const tasksSnapshot = await getDocs(tasksQuery);
-            
-            const deletePromises = tasksSnapshot.docs.map(doc => 
+
+            const deletePromises = tasksSnapshot.docs.map(doc =>
                 deleteDoc(doc(db, 'tasks', doc.id))
             );
-            
+
             await Promise.all(deletePromises);
-            
+
             // Projeyi sil
             await deleteDoc(doc(db, 'projects', projectId));
-            
+
             setShowDeleteModal(false);
             alert('Proje başarıyla silindi!');
             navigate('/projects');
@@ -335,22 +349,21 @@ const ProjectDetail = () => {
                 )}
             </div>
 
-            {/* Tab Navigation */}
+            {/* Tab Navigation - GÜNCELLENDİ: Kullanıcılar için Ayarlar sekmesini gizle */}
             <div className="mb-6 border-b border-gray-200 dark:border-gray-700">
                 <nav className="flex space-x-8">
                     {[
                         { id: 'board', label: 'Kanban Board', icon: '📋' },
                         { id: 'overview', label: 'Genel Bakış', icon: '📊' },
-                        { id: 'settings', label: 'Ayarlar', icon: '⚙️' }
+                        ...(canViewSettings ? [{ id: 'settings', label: 'Ayarlar', icon: '⚙️' }] : [])
                     ].map(tab => (
                         <button
                             key={tab.id}
                             onClick={() => setActiveTab(tab.id)}
-                            className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
-                                activeTab === tab.id
+                            className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === tab.id
                                     ? 'border-blue-500 text-blue-600 dark:text-blue-400'
                                     : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
-                            }`}
+                                }`}
                         >
                             <span className="mr-2">{tab.icon}</span>
                             {tab.label}
@@ -371,9 +384,13 @@ const ProjectDetail = () => {
                             )}
                         </div>
                     </div>
-                    
-                    {/* Kanban Board */}
-                    <Board projectId={projectId} />
+
+                    {/* Kanban Board - GÜNCELLENDİ: Kullanıcı yetkisi prop'u eklendi */}
+                    <Board
+                        projectId={projectId}
+                        userRole={userData?.role}
+                        currentUserId={userData?.id}
+                    />
                 </div>
             )}
 
@@ -453,7 +470,7 @@ const ProjectDetail = () => {
                                                 <div className="text-sm text-gray-600 dark:text-gray-400">Yapılacak</div>
                                             </div>
                                         </div>
-                                        
+
                                         {/* İlerleme Çubuğu */}
                                         {projectStats.totalTasks > 0 && (
                                             <div className="mt-6">
@@ -464,7 +481,7 @@ const ProjectDetail = () => {
                                                     </span>
                                                 </div>
                                                 <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                                                    <div 
+                                                    <div
                                                         className="bg-green-600 h-2 rounded-full transition-all duration-300"
                                                         style={{ width: `${(projectStats.completedTasks / projectStats.totalTasks) * 100}%` }}
                                                     ></div>
@@ -479,17 +496,17 @@ const ProjectDetail = () => {
                 </div>
             )}
 
-            {activeTab === 'settings' && (
+            {activeTab === 'settings' && canViewSettings && (
                 <div className="bg-white dark:bg-gray-800 rounded-lg shadow dark:shadow-gray-900/50 overflow-hidden">
                     <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
                         <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Proje Ayarları</h2>
                     </div>
-                    
+
                     <div className="p-6">
                         {/* Proje Durumu */}
                         <div className="mb-6">
                             <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">Proje Durumu</h3>
-                            
+
                             <div className="flex space-x-4">
                                 {[
                                     { value: 'active', label: 'Aktif', color: 'green', icon: '🚀' },
@@ -500,21 +517,19 @@ const ProjectDetail = () => {
                                         key={status.value}
                                         onClick={() => handleUpdateProjectStatus(status.value)}
                                         disabled={project.status === status.value || !canEditProject}
-                                        className={`flex-1 p-4 border-2 rounded-lg text-center transition-colors ${
-                                            project.status === status.value
-                                                ? status.value === 'active' 
+                                        className={`flex-1 p-4 border-2 rounded-lg text-center transition-colors ${project.status === status.value
+                                                ? status.value === 'active'
                                                     ? 'border-green-500 bg-green-50 dark:bg-green-900/20'
                                                     : status.value === 'on-hold'
-                                                    ? 'border-yellow-500 bg-yellow-50 dark:bg-yellow-900/20'
-                                                    : 'border-gray-500 bg-gray-50 dark:bg-gray-900/20'
+                                                        ? 'border-yellow-500 bg-yellow-50 dark:bg-yellow-900/20'
+                                                        : 'border-gray-500 bg-gray-50 dark:bg-gray-900/20'
                                                 : 'border-gray-300 dark:border-gray-600 hover:border-gray-400'
-                                        } ${!canEditProject ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                            } ${!canEditProject ? 'opacity-50 cursor-not-allowed' : ''}`}
                                     >
-                                        <div className={`text-2xl mb-2 ${
-                                            status.value === 'active' ? 'text-green-600' :
-                                            status.value === 'on-hold' ? 'text-yellow-600' :
-                                            'text-gray-600'
-                                        }`}>
+                                        <div className={`text-2xl mb-2 ${status.value === 'active' ? 'text-green-600' :
+                                                status.value === 'on-hold' ? 'text-yellow-600' :
+                                                    'text-gray-600'
+                                            }`}>
                                             {status.icon}
                                         </div>
                                         <div className="font-medium text-gray-900 dark:text-white">{status.label}</div>
@@ -524,7 +539,7 @@ const ProjectDetail = () => {
                                     </button>
                                 ))}
                             </div>
-                            
+
                             {!canEditProject && (
                                 <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
                                     * Proje durumunu değiştirmek için proje sahibi veya yönetici olmalısınız
@@ -536,7 +551,7 @@ const ProjectDetail = () => {
                         {(userData.role === 'admin' || project.createdBy === userData.id) && (
                             <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
                                 <h3 className="text-lg font-medium text-red-600 dark:text-red-400 mb-4">Tehlikeli İşlemler</h3>
-                                
+
                                 <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
                                     <div className="flex items-center justify-between">
                                         <div>
@@ -565,7 +580,7 @@ const ProjectDetail = () => {
                     <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md">
                         <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Projeyi Sil</h3>
                         <p className="text-gray-600 dark:text-gray-400 mb-6">
-                            "{project.title}" projesini silmek istediğinizden emin misiniz? 
+                            "{project.title}" projesini silmek istediğinizden emin misiniz?
                             Bu işlem geri alınamaz ve tüm görevler silinecek.
                         </p>
                         <div className="flex justify-end space-x-3">
@@ -595,7 +610,7 @@ const ProjectDetail = () => {
                         <p className="text-gray-600 dark:text-gray-400 mb-4 text-center">
                             "{project.title}" projesini tamamlandı olarak işaretlemek üzeresiniz.
                         </p>
-                        
+
                         <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4 mb-4">
                             <h4 className="font-medium text-yellow-800 dark:text-yellow-300 mb-2">⚠️ Önemli Uyarı</h4>
                             <ul className="text-sm text-yellow-700 dark:text-yellow-400 space-y-1">

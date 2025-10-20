@@ -37,23 +37,29 @@ const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message }) => {
 };
 
 // Draggable Task Component
-const DraggableTask = ({ task, onUpdate }) => {
+const DraggableTask = ({ task, onUpdate, userRole, currentUserId }) => { // YENİ: userRole ve currentUserId prop'ları eklendi
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [assignedUser, setAssignedUser] = useState(null);
 
+  // YENİ: Kullanıcı yetkisi kontrolleri
+  const canEditTask = userRole === 'admin' || userRole === 'manager' || task.createdBy === currentUserId;
+  const canDeleteTask = userRole === 'admin' || userRole === 'manager' || task.createdBy === currentUserId;
+  const canDragTask = userRole === 'admin' || userRole === 'manager' || task.assignee === currentUserId;
+
   // Drag configuration
   const [{ isDragging }, drag, dragPreview] = useDrag(() => ({
     type: ItemTypes.TASK,
-    item: { 
-      id: task.id, 
+    item: {
+      id: task.id,
       status: task.status,
       type: 'task'
     },
     collect: (monitor) => ({
       isDragging: !!monitor.isDragging(),
     }),
-  }), [task.id, task.status]);
+    canDrag: () => canDragTask, // YENİ: Sürükleme yetkisi kontrolü
+  }), [task.id, task.status, canDragTask]);
 
   // Fetch assigned user
   useEffect(() => {
@@ -127,37 +133,38 @@ const DraggableTask = ({ task, onUpdate }) => {
 
       {/* Normal task görünümü */}
       <div
-        ref={drag}
-        style={{ 
+        ref={canDragTask ? drag : null} // DÜZELTİLDİ: drag referansını doğru kullan
+        style={{
           opacity: isDragging ? 0 : 1,
-          cursor: 'grab'
+          cursor: canDragTask ? 'grab' : 'pointer'
         }}
-        className={`bg-white dark:bg-gray-800 rounded-lg shadow-sm hover:shadow-md dark:hover:shadow-gray-900/70 transition-all p-3 border border-gray-200 dark:border-gray-700 relative group ${
-          isDragging ? 'hidden' : 'block'
-        }`}
+        className={`bg-white dark:bg-gray-800 rounded-lg shadow-sm hover:shadow-md dark:hover:shadow-gray-900/70 transition-all p-3 border border-gray-200 dark:border-gray-700 relative group ${isDragging ? 'hidden' : 'block'
+          }`}
         onClick={handleClick}
       >
-        {/* Sil butonu - hover'da görünecek */}
-        <button
-          onClick={handleDeleteClick}
-          className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600 shadow-md z-10"
-          title="Görevi sil"
-        >
-          ×
-        </button>
+        {/* Sil butonu - YENİ: Sadece yetkili kullanıcılar görebilir */}
+        {canDeleteTask && (
+          <button
+            onClick={handleDeleteClick}
+            className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600 shadow-md z-10"
+            title="Görevi sil"
+          >
+            ×
+          </button>
+        )}
 
         <div className="flex justify-between items-start mb-2">
           <h4 className="font-medium text-gray-900 dark:text-white text-sm leading-tight flex-1 pr-4">
             {task.title}
           </h4>
         </div>
-        
+
         {task.description && (
           <p className="text-gray-600 dark:text-gray-400 text-xs mb-2 line-clamp-2 leading-relaxed">
             {task.description}
           </p>
         )}
-        
+
         {/* Atanan Kişi - Daha Belirgin */}
         {assignedUser && (
           <div className="flex items-center space-x-2 mb-2 p-1 bg-blue-50 dark:bg-blue-900/20 rounded">
@@ -169,7 +176,7 @@ const DraggableTask = ({ task, onUpdate }) => {
             </span>
           </div>
         )}
-        
+
         <div className="flex justify-between items-center text-xs text-gray-400 dark:text-gray-500">
           <span className="truncate">
             {task.createdAt?.toDate?.().toLocaleDateString('tr-TR')}
@@ -178,22 +185,25 @@ const DraggableTask = ({ task, onUpdate }) => {
         </div>
       </div>
 
-      {/* Task Detail Modal */}
+      {/* Task Detail Modal - YENİ: Düzenleme yetkisi prop'u eklendi */}
       <TaskDetailModal
         task={task}
         isOpen={showDetailModal}
         onClose={() => setShowDetailModal(false)}
         onUpdate={onUpdate}
+        canEdit={canEditTask} // YENİ: Düzenleme yetkisi
       />
 
-      {/* Silme Onay Modal'ı */}
-      <ConfirmModal
-        isOpen={showDeleteModal}
-        onClose={() => setShowDeleteModal(false)}
-        onConfirm={handleDeleteTask}
-        title="Görevi Sil"
-        message={`"${task.title}" görevini silmek istediğinizden emin misiniz? Bu işlem geri alınamaz.`}
-      />
+      {/* Silme Onay Modal'ı - YENİ: Sadece yetkili kullanıcılar için */}
+      {canDeleteTask && (
+        <ConfirmModal
+          isOpen={showDeleteModal}
+          onClose={() => setShowDeleteModal(false)}
+          onConfirm={handleDeleteTask}
+          title="Görevi Sil"
+          message={`"${task.title}" görevini silmek istediğinizden emin misiniz? Bu işlem geri alınamaz.`}
+        />
+      )}
     </>
   );
 };

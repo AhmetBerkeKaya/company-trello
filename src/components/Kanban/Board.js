@@ -2,33 +2,35 @@ import React, { useState, useEffect } from 'react';
 import { DndProvider, useDrag, useDrop } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
 import Column from './Column';
-import { collection, query, where, getDocs, orderBy, updateDoc, doc } from 'firebase/firestore';
+import { collection, query, where, getDocs, orderBy, updateDoc, doc, getDoc } from 'firebase/firestore';
 import { db } from '../../firebase/config';
 import { notifyTaskUpdate } from '../../utils/notificationHelper';
+import { useAuth } from '../../contexts/AuthContext';
 
 // YENİ: Task component'ini burada TANIMLAMA, sadece DraggableTask kullanacağız
 const ItemTypes = {
   TASK: 'task'
 };
 
-// YENİ: Sadece DraggableTask component'i
-const DraggableTask = ({ task, onUpdate }) => {
+// YENİ: Sadece DraggableTask component'i - GÜNCELLENDİ: Kullanıcı yetkisi kontrolü eklendi
+const DraggableTask = ({ task, onUpdate, canDrag }) => {
   const [{ isDragging }, drag] = useDrag(() => ({
     type: ItemTypes.TASK,
     item: { id: task.id, status: task.status },
     collect: (monitor) => ({
       isDragging: !!monitor.isDragging(),
     }),
-  }), [task.id, task.status]);
+    canDrag: () => canDrag, // YENİ: Sürükleme yetkisi kontrolü
+  }), [task.id, task.status, canDrag]);
 
   return (
     <div
-      ref={drag}
+      ref={canDrag ? drag : null} // YENİ: Yetki yoksa drag özelliği yok
       style={{
         opacity: isDragging ? 0.5 : 1,
         transform: isDragging ? 'scale(0.95)' : 'scale(1)'
       }}
-      className="cursor-grab active:cursor-grabbing transition-transform"
+      className={`transition-transform ${canDrag ? 'cursor-grab active:cursor-grabbing' : 'cursor-default'}`}
     >
       {/* Task içeriği Column'dan gelecek */}
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm hover:shadow-md dark:hover:shadow-gray-900/70 transition-all p-3 border border-gray-200 dark:border-gray-700 cursor-pointer">
@@ -82,8 +84,8 @@ const Task = ({ task, onUpdate }) => {
   );
 };
 
-// YENİ: Droppable Column component
-const DroppableColumn = ({ column, projectId, onTaskUpdate, moveTask }) => {
+// YENİ: Droppable Column component - GÜNCELLENDİ: Kullanıcı yetkisi kontrolü eklendi
+const DroppableColumn = ({ column, projectId, onTaskUpdate, moveTask, userRole, currentUserId }) => {
   const [{ isOver }, drop] = useDrop(() => ({
     accept: ItemTypes.TASK,
     drop: (item) => moveTask(item.id, column.id),
@@ -96,8 +98,8 @@ const DroppableColumn = ({ column, projectId, onTaskUpdate, moveTask }) => {
     <div
       ref={drop}
       className={`flex-shrink-0 w-full md:w-80 rounded-lg p-4 transition-colors ${isOver
-          ? 'bg-blue-100 dark:bg-blue-900/30'
-          : 'bg-gray-100 dark:bg-gray-800/50'
+        ? 'bg-blue-100 dark:bg-blue-900/30'
+        : 'bg-gray-100 dark:bg-gray-800/50'
         }`}
     >
       <Column
@@ -105,25 +107,42 @@ const DroppableColumn = ({ column, projectId, onTaskUpdate, moveTask }) => {
         projectId={projectId}
         onTaskUpdate={onTaskUpdate}
         TaskComponent={DraggableTask}
+        userRole={userRole} // YENİ: Kullanıcı rolü prop'u
+        currentUserId={currentUserId} // YENİ: Mevcut kullanıcı ID'si
       />
     </div>
   );
 };
 
-// Ana Board Component
-const Board = ({ projectId }) => {
+// Ana Board Component - GÜNCELLENDİ: userRole ve currentUserId prop'ları eklendi
+const Board = ({ projectId, userRole, currentUserId }) => {
+  const { userData } = useAuth(); // YENİ: Auth context eklendi
   const [columns, setColumns] = useState([
     { id: 'todo', title: 'Yapılacaklar', tasks: [] },
     { id: 'inProgress', title: 'Devam Eden', tasks: [] },
     { id: 'done', title: 'Tamamlandı', tasks: [] }
   ]);
   const [loading, setLoading] = useState(true);
+  const [project, setProject] = useState(null); // YENİ: Proje bilgisi için state
 
   useEffect(() => {
     if (projectId) {
       fetchTasks();
+      fetchProject(); // YENİ: Proje bilgilerini getir
     }
   }, [projectId]);
+
+  // YENİ: Proje bilgilerini getir
+  const fetchProject = async () => {
+    try {
+      const projectDoc = await getDoc(doc(db, 'projects', projectId));
+      if (projectDoc.exists()) {
+        setProject(projectDoc.data());
+      }
+    } catch (error) {
+      console.error('Proje bilgisi getirme hatası:', error);
+    }
+  };
 
   const fetchTasks = async () => {
     try {
@@ -166,9 +185,24 @@ const Board = ({ projectId }) => {
     }
   };
 
-  // YENİ: Görevi taşıma fonksiyonu
+  // YENİ: Görevi taşıma fonksiyonu - GÜNCELLENDİ: Kullanıcı yetkisi kontrolü eklendi
   const moveTask = async (taskId, newStatus) => {
     try {
+      // Görevin detaylarını bul
+      const taskToMove = columns
+        .flatMap(col => col.tasks)
+        .find(task => task.id === taskId);
+
+      // YENİ: Kullanıcı yetkisi kontrolü
+      const canMoveTask = userRole === 'admin' ||
+        userRole === 'manager' ||
+        taskToMove?.assignee === currentUserId;
+
+      if (!canMoveTask) {
+        alert('Bu görevi taşıma yetkiniz yok! Sadece kendi görevlerinizi taşıyabilirsiniz.');
+        return;
+      }
+
       // Önce UI'ı güncelle (optimistic update)
       setColumns(prevColumns => {
         return prevColumns.map(column => {
@@ -181,10 +215,6 @@ const Board = ({ projectId }) => {
           }
           // Yeni kolona görevi ekle
           if (column.id === newStatus) {
-            const taskToMove = prevColumns
-              .flatMap(col => col.tasks)
-              .find(task => task.id === taskId);
-
             if (taskToMove) {
               return {
                 ...column,
@@ -201,14 +231,13 @@ const Board = ({ projectId }) => {
         updatedAt: new Date()
       });
 
-      // BİLDİRİM EKLE - YENİ
-      const taskToNotify = updatedColumns
-        .flatMap(col => col.tasks)
-        .find(task => task.id === taskId);
-
-      if (taskToNotify && taskToNotify.assignee) {
+      // BİLDİRİM EKLE - GÜNCELLENDİ: Proje bilgisi kontrolü
+      if (taskToMove && taskToMove.assignee) {
         await notifyTaskUpdate(
-          { ...taskToNotify, projectTitle: project?.title },
+          {
+            ...taskToMove,
+            projectTitle: project?.title || 'Bilinmeyen Proje'
+          },
           { id: userData.id, name: userData.name }
         );
       }
@@ -241,6 +270,8 @@ const Board = ({ projectId }) => {
             projectId={projectId}
             onTaskUpdate={fetchTasks}
             moveTask={moveTask}
+            userRole={userRole} // BU PROP'U EKLEYİN
+            currentUserId={currentUserId} // BU PROP'U EKLEYİN
           />
         ))}
       </div>
