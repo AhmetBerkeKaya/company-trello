@@ -276,22 +276,6 @@ const Projects = () => {
 
   return (
     <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
-      {/* Debug Bilgisi */}
-      <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4 mb-6">
-        <div className="flex justify-between items-center">
-          <div>
-            <h3 className="text-sm font-medium text-blue-800 dark:text-blue-300">Debug Bilgisi</h3>
-            <p className="text-sm text-blue-600 dark:text-blue-400 mt-1">{debugInfo}</p>
-          </div>
-          <button
-            onClick={fetchAllProjectsTest}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm"
-          >
-            Tüm Projeleri Gör
-          </button>
-        </div>
-      </div>
-
       {/* Başlık ve Filtreler */}
       <div className="mb-8">
         <div className="flex justify-between items-center mb-6">

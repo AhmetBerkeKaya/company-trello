@@ -19,20 +19,29 @@ const AdminUsers = () => {
   const fetchUsers = async () => {
     try {
       setLoading(true);
-      const usersQuery = query(
-        collection(db, 'users'),
-        orderBy('createdAt', 'desc')
-      );
-      
+
+      // Basit sorgu - orderBy olmadan
+      const usersQuery = query(collection(db, 'users'));
+
       const usersSnapshot = await getDocs(usersQuery);
       const usersData = usersSnapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       }));
-      
+
+      // İstemci tarafında sırala
+      usersData.sort((a, b) => {
+        const dateA = a.createdAt?.toDate?.() || a.lastLoginAt?.toDate?.() || new Date(0);
+        const dateB = b.createdAt?.toDate?.() || b.lastLoginAt?.toDate?.() || new Date(0);
+        return dateB - dateA; // Yeniden eskiye
+      });
+
+      console.log('📊 Kullanıcılar getirildi:', usersData.length, 'kullanıcı');
+      console.log('👥 Kullanıcı listesi:', usersData);
+
       setUsers(usersData);
     } catch (error) {
-      console.error('Kullanıcıları getirme hatası:', error);
+      console.error('❌ Kullanıcıları getirme hatası:', error);
     } finally {
       setLoading(false);
     }
@@ -45,18 +54,18 @@ const AdminUsers = () => {
     }
 
     setUpdatingUser(userId);
-    
+
     try {
       await updateDoc(doc(db, 'users', userId), {
         role: newRole,
         updatedAt: new Date()
       });
-      
+
       // Local state'i güncelle
-      setUsers(prev => prev.map(user => 
+      setUsers(prev => prev.map(user =>
         user.id === userId ? { ...user, role: newRole } : user
       ));
-      
+
     } catch (error) {
       console.error('Rol güncelleme hatası:', error);
       alert('Rol güncellenirken hata oluştu: ' + error.message);
@@ -67,17 +76,17 @@ const AdminUsers = () => {
 
   const updateUserDepartment = async (userId, newDepartment) => {
     setUpdatingUser(userId);
-    
+
     try {
       await updateDoc(doc(db, 'users', userId), {
         department: newDepartment,
         updatedAt: new Date()
       });
-      
-      setUsers(prev => prev.map(user => 
+
+      setUsers(prev => prev.map(user =>
         user.id === userId ? { ...user, department: newDepartment } : user
       ));
-      
+
     } catch (error) {
       console.error('Departman güncelleme hatası:', error);
     } finally {
@@ -170,7 +179,7 @@ const AdminUsers = () => {
             Sistem Kullanıcıları ({users.length})
           </h2>
         </div>
-        
+
         <div className="divide-y divide-gray-200 dark:divide-gray-700">
           {users.map(user => (
             <div key={user.id} className="px-6 py-4 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
@@ -196,9 +205,9 @@ const AdminUsers = () => {
                       )}
                       <span>📅 {user.createdAt?.toDate?.().toLocaleDateString('tr-TR') || 'Bilinmiyor'}</span>
                       {user.lastLoginAt && (
-                        <span>🔐 {user.lastLoginAt?.toDate?.().toLocaleDateString('tr-TR') || 
-                                 user.lastLoginAt?.toLocaleDateString?.('tr-TR') || 
-                                 'Hiç giriş yapmamış'}</span>
+                        <span>🔐 {user.lastLoginAt?.toDate?.().toLocaleDateString('tr-TR') ||
+                          user.lastLoginAt?.toLocaleDateString?.('tr-TR') ||
+                          'Hiç giriş yapmamış'}</span>
                       )}
                     </div>
                   </div>

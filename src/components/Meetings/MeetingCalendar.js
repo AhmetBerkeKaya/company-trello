@@ -94,22 +94,6 @@ const MeetingCalendar = ({ meetings, onMeetingClick }) => {
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-lg shadow dark:shadow-gray-900/50 p-6">
-      {/* Debug Bilgisi */}
-      <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3 mb-4">
-        <div className="flex justify-between items-center">
-          <div>
-            <h4 className="text-sm font-medium text-blue-800 dark:text-blue-300">Debug Bilgisi</h4>
-            <p className="text-sm text-blue-600 dark:text-blue-400">{debugInfo}</p>
-          </div>
-          <button
-            onClick={() => console.log('Events:', calendarEvents)}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm"
-          >
-            Console'da Gör
-          </button>
-        </div>
-      </div>
-
       <div className="mb-4 flex justify-between items-center">
         <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Toplantı Takvimi</h2>
         

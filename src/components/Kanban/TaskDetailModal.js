@@ -4,6 +4,7 @@ import { doc, updateDoc, collection, addDoc, getDocs, query, where, getDoc, dele
 import { db } from '../../firebase/config';
 import LoadingSpinner from '../UI/LoadingSpinner';
 import FileUpload from './FileUpload';
+import { notifyTaskAssignment, notifyTaskUpdate } from '../../utils/notificationHelper';
 
 // Confirm Modal
 const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message }) => {
@@ -145,6 +146,7 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate }) => {
     }
   };
 
+  // handleSave fonksiyonunu şu şekilde güncelleyin:
   const handleSave = async () => {
     if (!task) return;
 
@@ -156,6 +158,50 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate }) => {
         assignee,
         updatedAt: new Date()
       });
+
+      // PROJE BİLGİSİNİ AL
+      let projectTitle = 'Proje';
+      if (task.projectId) {
+        try {
+          const projectDoc = await getDoc(doc(db, 'projects', task.projectId));
+          if (projectDoc.exists()) {
+            projectTitle = projectDoc.data().title || 'Proje';
+          }
+        } catch (error) {
+          console.error('Proje bilgisi alınamadı:', error);
+        }
+      }
+
+      // BİLDİRİM GÖNDER
+      if (assignee !== task.assignee) {
+        // YENİ ATAMA - notifyTaskAssignment
+        if (assignee) {
+          await notifyTaskAssignment(
+            {
+              ...task,
+              title,
+              assignee,
+              projectTitle,
+              id: task.id
+            },
+            assignee,
+            { id: userData.id, name: userData.name }
+          );
+        }
+      } else if (title !== task.title || description !== task.description) {
+        // GÖREV GÜNCELLEME - notifyTaskUpdate
+        await notifyTaskUpdate(
+          {
+            ...task,
+            title,
+            description,
+            assignee,
+            projectTitle,
+            id: task.id
+          },
+          { id: userData.id, name: userData.name }
+        );
+      }
 
       onUpdate();
       onClose();
@@ -169,11 +215,11 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate }) => {
   // Atanan kişiyi değiştir
   const handleAssigneeChange = async (userId) => {
     // Rol kontrolü - sadece admin ve proje yöneticisi atama yapabilir
-    if (userData.role !== 'admin' && userData.role !== 'project-manager') {
+    if (userData.role !== 'admin' && userData.role !== 'manager') {
       alert('Kullanıcı atama yetkiniz yok! Sadece admin ve proje yöneticileri kullanıcı atayabilir.');
       return;
     }
-    
+
     setAssignee(userId);
     if (userId) {
       await fetchAssignedUser(userId);
@@ -187,7 +233,7 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate }) => {
 
     try {
       setLoading(true);
-      
+
       const comment = {
         text: newComment,
         taskId: task.id,
@@ -271,11 +317,10 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate }) => {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`py-3 border-b-2 font-medium text-sm transition-colors ${
-                  activeTab === tab.id
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700'
-                }`}
+                className={`py-3 border-b-2 font-medium text-sm transition-colors ${activeTab === tab.id
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700'
+                  }`}
               >
                 {tab.label}
               </button>
@@ -307,7 +352,7 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate }) => {
                   <label className="block text-sm font-medium text-gray-700">
                     Atanan Kişi
                   </label>
-                  {(userData.role === 'admin' || userData.role === 'project-manager') ? (
+                  {(userData.role === 'admin' || userData.role === 'manager') ? (
                     <span className="text-xs text-green-600 bg-green-100 px-2 py-1 rounded">
                       Değiştirebilirsiniz
                     </span>
@@ -317,8 +362,8 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate }) => {
                     </span>
                   )}
                 </div>
-                
-                {(userData.role === 'admin' || userData.role === 'project-manager') ? (
+
+                {(userData.role === 'admin' || userData.role === 'manager') ? (
                   <>
                     <select
                       value={assignee}
@@ -400,8 +445,8 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate }) => {
                       </div>
                       {comment.userInfo?.role && (
                         <div className="text-xs text-gray-500 mt-1">
-                          {comment.userInfo.role === 'admin' ? 'Admin' : 
-                           comment.userInfo.role === 'project-manager' ? 'Proje Yöneticisi' : 'Kullanıcı'}
+                          {comment.userInfo.role === 'admin' ? 'Admin' :
+                            comment.userInfo.role === 'manager' ? 'Proje Yöneticisi' : 'Kullanıcı'}
                         </div>
                       )}
                     </div>
@@ -440,7 +485,7 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate }) => {
                     />
                     <div className="flex justify-between items-center mt-2">
                       <span className="text-xs text-gray-500">
-                        {userData.name} ({userData.role === 'admin' ? 'Admin' : userData.role === 'project-manager' ? 'Proje Yöneticisi' : 'Kullanıcı'}) olarak yorum yapıyorsunuz
+                        {userData.name} ({userData.role === 'admin' ? 'Admin' : userData.role === 'manager' ? 'Proje Yöneticisi' : 'Kullanıcı'}) olarak yorum yapıyorsunuz
                       </span>
                       <button
                         onClick={handleAddComment}

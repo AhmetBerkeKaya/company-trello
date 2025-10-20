@@ -141,34 +141,34 @@ const Meetings = () => {
           <div className="bg-gray-100 dark:bg-gray-700 rounded-lg p-1 flex">
             <button
               onClick={() => setView('calendar')}
-              className={`px-3 py-2 text-sm font-medium rounded-md transition-colors ${
-                view === 'calendar'
+              className={`px-3 py-2 text-sm font-medium rounded-md transition-colors ${view === 'calendar'
                   ? 'bg-white dark:bg-gray-600 text-blue-600 dark:text-blue-400 shadow-sm'
                   : 'text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'
-              }`}
+                }`}
             >
               📅 Takvim
             </button>
             <button
               onClick={() => setView('list')}
-              className={`px-3 py-2 text-sm font-medium rounded-md transition-colors ${
-                view === 'list'
+              className={`px-3 py-2 text-sm font-medium rounded-md transition-colors ${view === 'list'
                   ? 'bg-white dark:bg-gray-600 text-blue-600 dark:text-blue-400 shadow-sm'
                   : 'text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'
-              }`}
+                }`}
             >
               📋 Liste
             </button>
           </div>
 
           {/* Yeni Toplantı Butonu */}
-          <button
-            onClick={handleCreateMeeting}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center space-x-2"
-          >
-            <span>+</span>
-            <span>Yeni Toplantı</span>
-          </button>
+          {(userData?.role === 'admin' || userData?.role === 'project-manager') && (
+            <button
+              onClick={handleCreateMeeting}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center space-x-2"
+            >
+              <span>+</span>
+              <span>Yeni Toplantı</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -300,11 +300,10 @@ const MeetingListItem = ({ meeting, onEdit }) => {
 
   return (
     <div
-      className={`p-4 border rounded-lg cursor-pointer hover:shadow-md dark:hover:shadow-gray-900/70 transition-shadow ${
-        isPast 
-          ? 'bg-gray-50 dark:bg-gray-700/50 border-gray-200 dark:border-gray-600' 
+      className={`p-4 border rounded-lg cursor-pointer hover:shadow-md dark:hover:shadow-gray-900/70 transition-shadow ${isPast
+          ? 'bg-gray-50 dark:bg-gray-700/50 border-gray-200 dark:border-gray-600'
           : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700'
-      }`}
+        }`}
       onClick={() => onEdit(meeting)}
     >
       <div className="flex justify-between items-start">
@@ -320,11 +319,10 @@ const MeetingListItem = ({ meeting, onEdit }) => {
         </div>
 
         <div className="flex items-center space-x-2">
-          <span className={`px-2 py-1 text-xs rounded-full ${
-            isPast 
-              ? 'bg-gray-100 text-gray-800 dark:bg-gray-600 dark:text-gray-300' 
+          <span className={`px-2 py-1 text-xs rounded-full ${isPast
+              ? 'bg-gray-100 text-gray-800 dark:bg-gray-600 dark:text-gray-300'
               : 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-300'
-          }`}>
+            }`}>
             {isPast ? 'Tamamlandı' : 'Planlandı'}
           </span>
           <button className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 text-sm">

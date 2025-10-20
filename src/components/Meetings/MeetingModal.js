@@ -3,6 +3,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { doc, addDoc, updateDoc, collection, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../../firebase/config';
 import LoadingSpinner from '../UI/LoadingSpinner';
+import { notifyMeetingCreated } from '../../utils/notificationHelper';
 
 const MeetingModal = ({ meeting, isOpen, onClose, onSave }) => {
   const { userData } = useAuth();
@@ -65,11 +66,11 @@ const MeetingModal = ({ meeting, isOpen, onClose, onSave }) => {
   useEffect(() => {
     if (isOpen) {
       fetchProjectsAndMembers();
-      
+
       if (isEditMode) {
         const startTime = meeting.startTime?.toDate?.();
         const endTime = meeting.endTime?.toDate?.();
-        
+
         setFormData({
           title: meeting.title || '',
           description: meeting.description || '',
@@ -80,7 +81,7 @@ const MeetingModal = ({ meeting, isOpen, onClose, onSave }) => {
           projectId: meeting.projectId || '',
           agenda: meeting.agenda?.length > 0 ? meeting.agenda : ['']
         });
-        
+
         setSelectedUsers(meeting.participants || []);
       } else {
         setFormData({
@@ -110,13 +111,13 @@ const MeetingModal = ({ meeting, isOpen, onClose, onSave }) => {
         collection(db, 'projects'),
         where('members', 'array-contains', userData.id)
       );
-      
+
       const projectsSnapshot = await getDocs(projectsQuery);
       const projectsList = projectsSnapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       }));
-      
+
       setProjects(projectsList);
 
       const allMemberIds = new Set();
@@ -129,13 +130,13 @@ const MeetingModal = ({ meeting, isOpen, onClose, onSave }) => {
           collection(db, 'users'),
           where('__name__', 'in', Array.from(allMemberIds))
         );
-        
+
         const usersSnapshot = await getDocs(usersQuery);
         const members = usersSnapshot.docs.map(doc => ({
           id: doc.id,
           ...doc.data()
         }));
-        
+
         setProjectMembers(members);
       }
     } catch (error) {
@@ -215,10 +216,11 @@ const MeetingModal = ({ meeting, isOpen, onClose, onSave }) => {
     }));
   };
 
+  // handleSubmit fonksiyonunu şu şekilde güncelleyin:
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
-    
+
     if (!formData.title.trim() || !formData.startTime || !formData.endTime) {
       setError('Lütfen zorunlu alanları doldurun (Başlık, Başlangıç ve Bitiş zamanı)');
       return;
@@ -256,15 +258,27 @@ const MeetingModal = ({ meeting, isOpen, onClose, onSave }) => {
         updatedAt: new Date()
       };
 
+      let meetingId;
+
       if (isEditMode) {
+        // DÜZENLEME MODU
         await updateDoc(doc(db, 'meetings', meeting.id), meetingData);
+        meetingId = meeting.id;
       } else {
-        await addDoc(collection(db, 'meetings'), meetingData);
+        // YENİ OLUŞTURMA MODU
+        const docRef = await addDoc(collection(db, 'meetings'), meetingData);
+        meetingId = docRef.id;
+
+        await notifyMeetingCreated(
+          { ...meetingData, id: meetingId },
+          meetingData.participants,
+          { id: userData.id, name: userData.name }
+        );
       }
 
       onSave();
       onClose();
-      
+
     } catch (error) {
       console.error('Toplantı kaydetme hatası:', error);
       setError('Toplantı kaydedilirken bir hata oluştu: ' + error.message);
@@ -277,7 +291,7 @@ const MeetingModal = ({ meeting, isOpen, onClose, onSave }) => {
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div 
+      <div
         ref={modalRef}
         className="bg-white dark:bg-gray-800 rounded-lg w-full max-w-2xl max-h-[90vh] overflow-hidden"
       >
@@ -442,7 +456,7 @@ const MeetingModal = ({ meeting, isOpen, onClose, onSave }) => {
                   {selectedUsers.length === filteredMembers.length + 1 ? 'Tümünü Kaldır' : 'Tümünü Seç'}
                 </button>
               </div>
-              
+
               {/* Arama */}
               <div className="mb-2">
                 <input

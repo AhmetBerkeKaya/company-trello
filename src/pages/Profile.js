@@ -9,7 +9,9 @@ const Profile = () => {
     const [activeTab, setActiveTab] = useState('profile');
     const [loading, setLoading] = useState(false);
     const [saveMessage, setSaveMessage] = useState('');
-
+    const [notifications, setNotifications] = useState([]);
+    const [loadingNotifications, setLoadingNotifications] = useState(false);
+    const [unreadCount, setUnreadCount] = useState(0);
     // Form state
     const [formData, setFormData] = useState({
         name: '',
@@ -44,6 +46,24 @@ const Profile = () => {
         totalMeetings: 0,
         assignedTasks: 0
     });
+    const fetchNotifications = async () => {
+        if (!userData) return;
+
+        try {
+            setLoadingNotifications(true);
+            const userNotifications = await getUserNotifications(userData.id);
+            setNotifications(userNotifications);
+
+            // Okunmamış bildirim sayısını hesapla
+            const unread = userNotifications.filter(n => !n.read).length;
+            setUnreadCount(unread);
+        } catch (error) {
+            console.error('Bildirimleri getirme hatası:', error);
+        } finally {
+            setLoadingNotifications(false);
+        }
+    };
+
     const [loadingStats, setLoadingStats] = useState(true);
 
     useEffect(() => {
@@ -65,6 +85,9 @@ const Profile = () => {
                 setThemeSettings({ theme: userData.theme });
             }
 
+            if (userData && activeTab === 'notifications') {
+                fetchNotifications();
+            }
             // İstatistikleri getir
             fetchStatistics();
         }
@@ -76,7 +99,7 @@ const Profile = () => {
 
         try {
             setLoadingStats(true);
-            
+
             const stats = {
                 activeProjects: 0,
                 completedTasks: 0,
@@ -325,18 +348,18 @@ const Profile = () => {
                                 <div className="flex justify-between text-sm">
                                     <span className="text-gray-600 dark:text-gray-400">Üye Olma:</span>
                                     <span className="font-medium text-gray-900 dark:text-white">
-                                        {userData.createdAt?.toDate?.().toLocaleDateString('tr-TR') || 
-                                         userData.createdAt?.toLocaleDateString?.('tr-TR') || 
-                                         'Bilinmiyor'}
+                                        {userData.createdAt?.toDate?.().toLocaleDateString('tr-TR') ||
+                                            userData.createdAt?.toLocaleDateString?.('tr-TR') ||
+                                            'Bilinmiyor'}
                                     </span>
                                 </div>
                                 <div className="flex justify-between text-sm">
                                     <span className="text-gray-600 dark:text-gray-400">Son Giriş:</span>
                                     <span className="font-medium text-gray-900 dark:text-white">
-                                        {userData.lastLoginAt?.toDate?.().toLocaleDateString('tr-TR') || 
-                                         userData.lastLoginAt?.toLocaleDateString?.('tr-TR') || 
-                                         userData.lastLogin?.toDate?.().toLocaleDateString('tr-TR') || 
-                                         'Hiç giriş yapılmamış'}
+                                        {userData.lastLoginAt?.toDate?.().toLocaleDateString('tr-TR') ||
+                                            userData.lastLoginAt?.toLocaleDateString?.('tr-TR') ||
+                                            userData.lastLogin?.toDate?.().toLocaleDateString('tr-TR') ||
+                                            'Hiç giriş yapılmamış'}
                                     </span>
                                 </div>
                             </div>
@@ -629,7 +652,7 @@ const Profile = () => {
                     {/* Rol Bazlı İstatistikler */}
                     <div className="bg-white dark:bg-gray-800 rounded-lg shadow dark:shadow-gray-900/50 p-6">
                         <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Hesap İstatistikleri</h3>
-                        
+
                         {loadingStats ? (
                             <div className="flex justify-center py-4">
                                 <LoadingSpinner size="small" />
@@ -675,7 +698,7 @@ const Profile = () => {
                             <div className="flex items-center justify-center space-x-2">
                                 <span className="text-lg">
                                     {userData.role === 'admin' ? '👑' :
-                                     userData.role === 'manager' ? '📋' : '👤'}
+                                        userData.role === 'manager' ? '📋' : '👤'}
                                 </span>
                                 <span className="text-sm text-gray-600 dark:text-gray-400 capitalize">
                                     {getRoleLabel(userData.role)} rolünde

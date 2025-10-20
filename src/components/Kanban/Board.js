@@ -4,6 +4,7 @@ import { HTML5Backend } from 'react-dnd-html5-backend';
 import Column from './Column';
 import { collection, query, where, getDocs, orderBy, updateDoc, doc } from 'firebase/firestore';
 import { db } from '../../firebase/config';
+import { notifyTaskUpdate } from '../../utils/notificationHelper';
 
 // YENİ: Task component'ini burada TANIMLAMA, sadece DraggableTask kullanacağız
 const ItemTypes = {
@@ -23,7 +24,7 @@ const DraggableTask = ({ task, onUpdate }) => {
   return (
     <div
       ref={drag}
-      style={{ 
+      style={{
         opacity: isDragging ? 0.5 : 1,
         transform: isDragging ? 'scale(0.95)' : 'scale(1)'
       }}
@@ -36,13 +37,13 @@ const DraggableTask = ({ task, onUpdate }) => {
             {task.title}
           </h4>
         </div>
-        
+
         {task.description && (
           <p className="text-gray-600 dark:text-gray-400 text-xs mb-2 line-clamp-2 leading-relaxed">
             {task.description}
           </p>
         )}
-        
+
         <div className="flex justify-between items-center text-xs text-gray-400 dark:text-gray-500">
           <span className="truncate">
             {task.createdAt?.toDate?.().toLocaleDateString('tr-TR')}
@@ -60,18 +61,18 @@ const Task = ({ task, onUpdate }) => {
 
   return (
     <>
-      <div 
+      <div
         className="bg-white dark:bg-gray-800 rounded shadow dark:shadow-gray-900/50 p-3 hover:shadow-md dark:hover:shadow-gray-900/70 transition-shadow cursor-pointer"
         onClick={() => setShowDetailModal(true)}
       >
         <div className="flex justify-between items-start mb-2">
           <h4 className="font-medium text-gray-900 dark:text-white text-sm">{task.title}</h4>
         </div>
-        
+
         {task.description && (
           <p className="text-gray-600 dark:text-gray-400 text-xs mb-2 line-clamp-2">{task.description}</p>
         )}
-        
+
         <div className="flex justify-between items-center text-xs text-gray-400 dark:text-gray-500">
           <span>{task.createdAt?.toDate?.().toLocaleDateString('tr-TR')}</span>
           <span>#{task.id.slice(-4)}</span>
@@ -92,17 +93,16 @@ const DroppableColumn = ({ column, projectId, onTaskUpdate, moveTask }) => {
   }));
 
   return (
-    <div 
+    <div
       ref={drop}
-      className={`flex-shrink-0 w-full md:w-80 rounded-lg p-4 transition-colors ${
-        isOver 
-          ? 'bg-blue-100 dark:bg-blue-900/30' 
+      className={`flex-shrink-0 w-full md:w-80 rounded-lg p-4 transition-colors ${isOver
+          ? 'bg-blue-100 dark:bg-blue-900/30'
           : 'bg-gray-100 dark:bg-gray-800/50'
-      }`}
+        }`}
     >
-      <Column 
-        column={column} 
-        projectId={projectId} 
+      <Column
+        column={column}
+        projectId={projectId}
         onTaskUpdate={onTaskUpdate}
         TaskComponent={DraggableTask}
       />
@@ -128,13 +128,13 @@ const Board = ({ projectId }) => {
   const fetchTasks = async () => {
     try {
       setLoading(true);
-      
+
       // Projeye ait görevleri getir
       const tasksQuery = query(
         collection(db, 'tasks'),
         where('projectId', '==', projectId)
       );
-      
+
       const tasksSnapshot = await getDocs(tasksQuery);
       const tasks = tasksSnapshot.docs.map(doc => {
         const data = doc.data();
@@ -184,7 +184,7 @@ const Board = ({ projectId }) => {
             const taskToMove = prevColumns
               .flatMap(col => col.tasks)
               .find(task => task.id === taskId);
-            
+
             if (taskToMove) {
               return {
                 ...column,
@@ -196,11 +196,22 @@ const Board = ({ projectId }) => {
         });
       });
 
-      // Firestore'da güncelle
       await updateDoc(doc(db, 'tasks', taskId), {
         status: newStatus,
         updatedAt: new Date()
       });
+
+      // BİLDİRİM EKLE - YENİ
+      const taskToNotify = updatedColumns
+        .flatMap(col => col.tasks)
+        .find(task => task.id === taskId);
+
+      if (taskToNotify && taskToNotify.assignee) {
+        await notifyTaskUpdate(
+          { ...taskToNotify, projectTitle: project?.title },
+          { id: userData.id, name: userData.name }
+        );
+      }
 
       console.log(`✅ Görev ${taskId} ${newStatus} durumuna taşındı`);
 

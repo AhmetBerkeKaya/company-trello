@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { collection, addDoc, getDocs, query, where } from 'firebase/firestore';
+import { collection, addDoc, getDocs, query, where, getDoc, doc } from 'firebase/firestore'; // getDoc ve doc eklendi
 import { db } from '../../firebase/config';
 import { useAuth } from '../../contexts/AuthContext';
 import Task from './Task';
+import { notifyTaskAssignment } from '../../utils/notificationHelper';
 
 const Column = ({ column, projectId, onTaskUpdate, TaskComponent }) => {
   const { userData } = useAuth();
@@ -22,7 +23,7 @@ const Column = ({ column, projectId, onTaskUpdate, TaskComponent }) => {
   const fetchProjectMembers = async () => {
     try {
       setLoadingMembers(true);
-      const projectDoc = await getDoc(doc(db, 'projects', projectId));
+      const projectDoc = await getDoc(doc(db, 'projects', projectId)); // Artık çalışacak
       const projectData = projectDoc.data();
 
       if (projectData?.members) {
@@ -55,13 +56,22 @@ const Column = ({ column, projectId, onTaskUpdate, TaskComponent }) => {
         description: '',
         status: column.id,
         projectId: projectId,
-        assignee: newTaskAssignee || userData.id, // Atanan kişi veya kendisi
+        assignee: newTaskAssignee || userData.id,
         createdBy: userData.id,
         createdAt: new Date(),
         updatedAt: new Date()
       };
 
-      await addDoc(collection(db, 'tasks'), newTask);
+      const docRef = await addDoc(collection(db, 'tasks'), newTask);
+      
+      // BİLDİRİM EKLE - YENİ
+      if (newTaskAssignee && newTaskAssignee !== userData.id) {
+        await notifyTaskAssignment(
+          { ...newTask, id: docRef.id },
+          newTaskAssignee,
+          { id: userData.id, name: userData.name }
+        );
+      }
       
       setNewTaskTitle('');
       setNewTaskAssignee('');
