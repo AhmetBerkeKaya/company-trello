@@ -11,6 +11,7 @@ import Meetings from './pages/Meetings';
 import './index.css';
 import AdminUsers from './pages/AdminUsers';
 import Profile from './pages/Profile';
+import Customers from './pages/Customers';
 
 function App() {
   return (
@@ -19,8 +20,8 @@ function App() {
         <div className="App min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors duration-300">
           <Routes>
             <Route path="/login" element={<Login />} />
-            <Route 
-              path="/*" 
+            <Route
+              path="/*"
               element={
                 <PrivateRoute>
                   <Navbar />
@@ -32,10 +33,15 @@ function App() {
                       <Route path="/meetings" element={<Meetings />} />
                       <Route path="/admin/users" element={<AdminUsers />} />
                       <Route path="/profile" element={<Profile />} />
+                      <Route path="/customers" element={
+                        <PrivateRoute>
+                          <Customers />
+                        </PrivateRoute>
+                      } />
                     </Routes>
                   </div>
                 </PrivateRoute>
-              } 
+              }
             />
           </Routes>
         </div>

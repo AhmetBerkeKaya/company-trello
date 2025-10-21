@@ -1,15 +1,39 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { collection, query, where, getDocs, orderBy, addDoc, serverTimestamp, updateDoc, doc } from 'firebase/firestore';
+import { collection, query, where, getDocs, orderBy, addDoc, serverTimestamp, updateDoc, doc, getDoc } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import LoadingSpinner from '../components/UI/LoadingSpinner';
 import { useNavigate } from 'react-router-dom';
 import { useLocation } from 'react-router-dom';
 
+// Proje Tipleri ve Kodları
+const PROJECT_TYPES = {
+  CAD: { code: 'CAD', name: 'CAD Tasarım', prefix: 'CAD', sequence: 1 },
+  CAM: { code: 'CAM', name: 'CAM İmalat', prefix: 'CAM', sequence: 2 },
+  CAE: { code: 'CAE', name: 'CAE Analiz', prefix: 'CAE', sequence: 3 },
+  BIM: { code: 'BIM', name: 'BIM Modelleme', prefix: 'BIM', sequence: 4 },
+  MES: { code: 'MES', name: 'MES Sistemi', prefix: 'MES', sequence: 5 },
+  PLM: { code: 'PLM', name: 'PLM Yönetimi', prefix: 'PLM', sequence: 6 },
+  PDM: { code: 'PDM', name: 'PDM Veri Yönetimi', prefix: 'PDM', sequence: 7 },
+  ERP: { code: 'ERP', name: 'ERP Planlama', prefix: 'ERP', sequence: 8 },
+  MRP: { code: 'MRP', name: 'MRP Üretim', prefix: 'MRP', sequence: 9 },
+  CMMS: { code: 'CMMS', name: 'CMMS Bakım', prefix: 'CMM', sequence: 10 },
+  SCM: { code: 'SCM', name: 'SCM Tedarik', prefix: 'SCM', sequence: 11 },
+  CRM: { code: 'CRM', name: 'CRM Müşteri', prefix: 'CRM', sequence: 12 },
+  APS: { code: 'APS', name: 'APS Planlama', prefix: 'APS', sequence: 13 },
+  QMS: { code: 'QMS', name: 'QMS Kalite', prefix: 'QMS', sequence: 14 },
+  EAM: { code: 'EAM', name: 'EAM Varlık', prefix: 'EAM', sequence: 15 },
+  WMS: { code: 'WMS', name: 'WMS Depo', prefix: 'WMS', sequence: 16 },
+  DMS: { code: 'DMS', name: 'DMS Doküman', prefix: 'DMS', sequence: 17 },
+  HCM: { code: 'HCM', name: 'HCM İnsan Kaynakları', prefix: 'HCM', sequence: 18 },
+  LIMS: { code: 'LIMS', name: 'LIMS Laboratuvar', prefix: 'LMS', sequence: 19 },
+  MOM: { code: 'MOM', name: 'MOM Operasyon', prefix: 'MOM', sequence: 20 }
+};
+
 const Projects = () => {
   const { userData } = useAuth();
-  const location = useLocation(); // ← Bu satırı ekleyelim
-  const [activeTab, setActiveTab] = useState('all'); // ← State'i isim değiştirelim
+  const location = useLocation();
+  const [activeTab, setActiveTab] = useState('all');
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all');
@@ -19,6 +43,8 @@ const Projects = () => {
   const [newProject, setNewProject] = useState({
     title: '',
     description: '',
+    company: '',
+    projectType: '',
     members: [],
     projectManager: '',
     startDate: '',
@@ -31,23 +57,30 @@ const Projects = () => {
   const [selectedProject, setSelectedProject] = useState(null);
   const [projectMembers, setProjectMembers] = useState([]);
   const [userSearch, setUserSearch] = useState('');
+  const [companies, setCompanies] = useState([]);
+  const [showCompanyModal, setShowCompanyModal] = useState(false);
+  const [newCompany, setNewCompany] = useState('');
+  const [showCompanyInfoModal, setShowCompanyInfoModal] = useState(false);
+  const [selectedCompanyInfo, setSelectedCompanyInfo] = useState(null);
+  const [isProjectTypeOpen, setIsProjectTypeOpen] = useState(false);
+  const [projectCode, setProjectCode] = useState('');
 
   useEffect(() => {
     fetchProjects();
     fetchAllUsers();
+    fetchCompanies();
   }, [userData, filter]);
-  // Location state'inden gelen aktif tab'ı kontrol et
+
   useEffect(() => {
     if (location.state?.activeTab) {
       setActiveTab(location.state.activeTab);
     }
   }, [location.state]);
 
-  // Filtre değiştiğinde state'i güncelle
   useEffect(() => {
     setFilter(activeTab);
   }, [activeTab]);
-  // Proje yöneticisi değiştiğinde, onu üye listesine otomatik ekle
+
   useEffect(() => {
     if (newProject.projectManager && !newProject.members.includes(newProject.projectManager)) {
       setNewProject(prev => ({
@@ -56,6 +89,27 @@ const Projects = () => {
       }));
     }
   }, [newProject.projectManager]);
+
+  useEffect(() => {
+    if (userData?.role === 'manager' && !newProject.projectManager) {
+      setNewProject(prev => ({
+        ...prev,
+        projectManager: userData.id
+      }));
+    }
+  }, [userData, newProject.projectManager]);
+
+  useEffect(() => {
+    if (newProject.projectType) {
+      const generateCode = async () => {
+        const code = await generateProjectCode(newProject.projectType);
+        setProjectCode(code);
+      };
+      generateCode();
+    } else {
+      setProjectCode('');
+    }
+  }, [newProject.projectType]);
 
   const fetchProjects = async () => {
     if (!userData) {
@@ -67,21 +121,16 @@ const Projects = () => {
       setLoading(true);
       setDebugInfo(`Kullanıcı ID: ${userData.id}, Rol: ${userData.role}`);
 
-      console.log('🔍 Kullanıcı bilgileri:', userData);
-
       const projectsQuery = query(
         collection(db, 'projects'),
         where('members', 'array-contains', userData.id)
       );
-
-      console.log('📋 Firestore sorgusu hazır:', projectsQuery);
 
       const projectsSnapshot = await getDocs(projectsQuery);
       console.log('📊 Sorgu sonucu:', projectsSnapshot.docs.length, 'proje bulundu');
 
       const projectsData = projectsSnapshot.docs.map(doc => {
         const data = doc.data();
-        console.log('📄 Proje verisi:', doc.id, data);
         return {
           id: doc.id,
           ...data
@@ -129,20 +178,6 @@ const Projects = () => {
     }
   };
 
-  const fetchAllProjectsTest = async () => {
-    try {
-      const allProjectsSnapshot = await getDocs(collection(db, 'projects'));
-      const allProjects = allProjectsSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      console.log('🔥 TÜM PROJELER:', allProjects);
-      setDebugInfo(`Firestore'da ${allProjects.length} proje var`);
-    } catch (error) {
-      console.error('Tüm projeleri getirme hatası:', error);
-    }
-  };
-
   const fetchAllUsers = async () => {
     try {
       setLoadingUsers(true);
@@ -162,11 +197,67 @@ const Projects = () => {
     }
   };
 
+  const fetchCompanies = async () => {
+    try {
+      const companiesQuery = query(
+        collection(db, 'companies'),
+        orderBy('name')
+      );
+      const companiesSnapshot = await getDocs(companiesQuery);
+      
+      const companiesData = companiesSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+
+      setCompanies(companiesData);
+      console.log('✅ Firmalar yüklendi:', companiesData.length);
+    } catch (error) {
+      console.error('❌ Firmaları getirme hatası:', error);
+      setCompanies([]);
+    }
+  };
+
+  const generateProjectCode = async (projectType) => {
+    if (!projectType) return '';
+
+    const selectedType = PROJECT_TYPES[projectType];
+    if (!selectedType) return '';
+
+    try {
+      const projectsQuery = query(
+        collection(db, 'projects'),
+        where('projectType', '==', projectType)
+      );
+      const projectsSnapshot = await getDocs(projectsQuery);
+      const projectCount = projectsSnapshot.size + 1;
+
+      const year = new Date().getFullYear();
+      const sequence = projectCount.toString().padStart(3, '0');
+      
+      return `${selectedType.prefix}-${year}-${sequence}`;
+    } catch (error) {
+      console.error('❌ Proje kodu oluşturma hatası:', error);
+      const year = new Date().getFullYear();
+      return `${selectedType.prefix}-${year}-001`;
+    }
+  };
+
   const handleAddProject = async (e) => {
     e.preventDefault();
 
     if (!userData || (userData.role !== 'admin' && userData.role !== 'manager')) {
       alert('Proje ekleme yetkiniz yok!');
+      return;
+    }
+
+    if (!newProject.projectType) {
+      alert('Proje tipi seçmelisiniz!');
+      return;
+    }
+
+    if (!newProject.company) {
+      alert('Firma seçmelisiniz!');
       return;
     }
 
@@ -179,7 +270,10 @@ const Projects = () => {
       const projectData = {
         title: newProject.title,
         description: newProject.description,
-        members: [...new Set([...newProject.members, newProject.projectManager])], // Tekrar edenleri kaldır
+        company: newProject.company,
+        projectType: newProject.projectType,
+        projectCode: projectCode,
+        members: [...new Set([...newProject.members, newProject.projectManager])],
         projectManager: newProject.projectManager,
         createdBy: userData.id,
         createdAt: serverTimestamp(),
@@ -189,18 +283,21 @@ const Projects = () => {
       };
 
       const docRef = await addDoc(collection(db, 'projects'), projectData);
-      console.log('✅ Proje başarıyla eklendi:', docRef.id);
+      console.log('✅ Proje başarıyla eklendi:', docRef.id, 'Kod:', projectCode);
 
       setShowAddProjectModal(false);
       setNewProject({
         title: '',
         description: '',
+        company: '',
+        projectType: '',
         members: [],
         projectManager: '',
         startDate: '',
         endDate: '',
         status: 'active'
       });
+      setProjectCode('');
       setUserSearch('');
 
       await fetchProjects();
@@ -240,12 +337,98 @@ const Projects = () => {
     }
   };
 
+  const handleAddCompany = async () => {
+    if (!newCompany.trim()) {
+      alert('Firma adı girmelisiniz!');
+      return;
+    }
+
+    try {
+      const existingCompany = companies.find(company => 
+        company.name.toLowerCase() === newCompany.trim().toLowerCase()
+      );
+
+      if (existingCompany) {
+        setNewProject(prev => ({ ...prev, company: existingCompany.name }));
+        setShowCompanyModal(false);
+        setNewCompany('');
+        alert('✅ Bu firma zaten listede mevcut! Seçili hale getirildi.');
+        return;
+      }
+
+      const companyData = {
+        name: newCompany.trim(),
+        createdAt: serverTimestamp(),
+        createdBy: userData.id,
+        createdByName: userData.name,
+        projects: []
+      };
+
+      const docRef = await addDoc(collection(db, 'companies'), companyData);
+      
+      const newCompanyWithId = { id: docRef.id, ...companyData };
+      setCompanies(prev => [...prev, newCompanyWithId]);
+      
+      setNewProject(prev => ({ ...prev, company: newCompany.trim() }));
+      
+      setShowCompanyModal(false);
+      setNewCompany('');
+      
+      console.log('✅ Firma başarıyla eklendi:', newCompany.trim());
+      
+    } catch (error) {
+      console.error('❌ Firma ekleme hatası:', error);
+      alert('Firma eklenirken bir hata oluştu. Lütfen tekrar deneyin.');
+    }
+  };
+
+  const fetchCompanyDetails = async (companyId) => {
+    try {
+      const companyDoc = await getDoc(doc(db, 'companies', companyId));
+      if (companyDoc.exists()) {
+        const companyData = companyDoc.data();
+
+        const projectsQuery = query(
+          collection(db, 'projects'),
+          where('company', '==', companyData.name)
+        );
+        const projectsSnapshot = await getDocs(projectsQuery);
+        const projectsData = projectsSnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
+
+        return {
+          ...companyData,
+          id: companyId,
+          projects: projectsData
+        };
+      }
+      return null;
+    } catch (error) {
+      console.error('❌ Firma detayları getirme hatası:', error);
+      return null;
+    }
+  };
+
+  const handleShowCompanyInfo = async (company) => {
+    try {
+      const companyDetails = await fetchCompanyDetails(company.id);
+      if (companyDetails) {
+        setSelectedCompanyInfo(companyDetails);
+        setShowCompanyInfoModal(true);
+      }
+    } catch (error) {
+      console.error('❌ Firma bilgileri gösterilirken hata:', error);
+      alert('Firma bilgileri yüklenirken bir hata oluştu.');
+    }
+  };
+
   const filteredProjects = projects.filter(project => {
     if (filter === 'all') return true;
     return project.status === filter;
   });
 
-  // Filtrelenmiş kullanıcıları hesapla
   const filteredUsers = allUsers.filter(user =>
     user.name?.toLowerCase().includes(userSearch.toLowerCase()) ||
     user.email?.toLowerCase().includes(userSearch.toLowerCase())
@@ -327,8 +510,8 @@ const Projects = () => {
               key={filterOption.key}
               onClick={() => setFilter(filterOption.key)}
               className={`px-4 py-2 rounded-lg font-medium transition-colors ${filter === filterOption.key
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                ? 'bg-blue-600 text-white'
+                : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
                 }`}
             >
               {filterOption.label} ({filterOption.count})
@@ -350,6 +533,7 @@ const Projects = () => {
                   onClick={() => {
                     setShowAddProjectModal(false);
                     setUserSearch('');
+                    setIsProjectTypeOpen(false);
                   }}
                   className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
                 >
@@ -358,19 +542,104 @@ const Projects = () => {
               </div>
 
               <form onSubmit={handleAddProject} className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Proje Adı *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={newProject.title}
-                    onChange={(e) => setNewProject({ ...newProject, title: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
-                    placeholder="Proje adını giriniz"
-                  />
+                {/* Açılır Liste Overlay */}
+                {isProjectTypeOpen && (
+                  <div
+                    className="fixed inset-0 z-40"
+                    onClick={() => setIsProjectTypeOpen(false)}
+                  ></div>
+                )}
+
+                {/* Proje Tipi ve Adı - AYNI SATIRDA */}
+                <div className="flex flex-col sm:flex-row gap-4">
+                  {/* Proje Tipi */}
+                  <div className="sm:flex-1">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      Proje Tipi *
+                    </label>
+                    <div className="relative">
+                      <button
+                        type="button"
+                        onClick={() => setIsProjectTypeOpen(!isProjectTypeOpen)}
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white text-left flex justify-between items-center"
+                      >
+                        <span className="truncate">
+                          {newProject.projectType 
+                            ? PROJECT_TYPES[newProject.projectType]?.name 
+                            : 'Tip seçin...'
+                          }
+                        </span>
+                        <span className="text-gray-400 flex-shrink-0 ml-2">▼</span>
+                      </button>
+
+                      {isProjectTypeOpen && (
+                        <div className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md shadow-lg max-h-60 overflow-y-auto">
+                          <div className="py-1">
+                            {Object.entries(PROJECT_TYPES).map(([key, type]) => (
+                              <button
+                                key={key}
+                                type="button"
+                                onClick={() => {
+                                  setNewProject({ ...newProject, projectType: key });
+                                  setIsProjectTypeOpen(false);
+                                }}
+                                className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors ${
+                                  newProject.projectType === key
+                                    ? 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300'
+                                    : 'text-gray-700 dark:text-gray-300'
+                                }`}
+                              >
+                                <div className="flex justify-between items-center">
+                                  <span className="truncate">{type.name}</span>
+                                  <span className="text-xs text-gray-500 bg-gray-200 dark:bg-gray-700 px-2 py-1 rounded flex-shrink-0 ml-2">
+                                    {type.prefix}
+                                  </span>
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Proje Adı */}
+                  <div className="sm:flex-1">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      Proje Adı *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={newProject.title}
+                      onChange={(e) => setNewProject({ ...newProject, title: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+                      placeholder="Proje adı..."
+                    />
+                  </div>
                 </div>
+
+                {/* Seçilen Proje Tipi ve Kodu Gösterimi */}
+                {newProject.projectType && (
+                  <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                    <div className="flex justify-between items-center">
+                      <div>
+                        <span className="font-medium text-blue-700 dark:text-blue-300">
+                          {PROJECT_TYPES[newProject.projectType]?.name}
+                        </span>
+                        <span className="text-sm text-blue-600 dark:text-blue-400 ml-2">
+                          ({PROJECT_TYPES[newProject.projectType]?.prefix})
+                        </span>
+                      </div>
+                      <div className="text-right">
+                        <div className="font-mono font-bold text-blue-700 dark:text-blue-300">
+                          {projectCode || 'Kod oluşturuluyor...'}
+                        </div>
+                        <div className="text-xs text-blue-600 dark:text-blue-400">Proje Kodu</div>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -385,26 +654,143 @@ const Projects = () => {
                   />
                 </div>
 
+                {/* Firma Seçim Kısmı */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Firma *
+                  </label>
+                  <div className="flex space-x-2">
+                    <div className="flex-1 relative">
+                      <select
+                        required
+                        value={newProject.company}
+                        onChange={(e) => setNewProject({ ...newProject, company: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+                      >
+                        <option value="">Bir firma seçin...</option>
+                        {companies.map(company => (
+                          <option key={company.id} value={company.name}>
+                            {company.name}
+                          </option>
+                        ))}
+                      </select>
+                      
+                      {/* Seçili firma için info butonu */}
+                      {newProject.company && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const selectedCompany = companies.find(c => c.name === newProject.company);
+                            if (selectedCompany) {
+                              handleShowCompanyInfo(selectedCompany);
+                            }
+                          }}
+                          className="absolute right-10 top-1/2 transform -translate-y-1/2 p-1 text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                          title="Firma bilgilerini görüntüle"
+                        >
+                          ℹ️
+                        </button>
+                      )}
+                    </div>
+                    
+                    <button
+                      type="button"
+                      onClick={() => setShowCompanyModal(true)}
+                      className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors flex items-center space-x-2 font-medium"
+                    >
+                      <span className="text-lg">+</span>
+                      <span className="hidden sm:inline">Yeni</span>
+                    </button>
+                  </div>
+                  
+                  {/* Tüm firmalar için hızlı info butonları */}
+                  {companies.length > 0 && (
+                    <div className="mt-2">
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">
+                        Hızlı erişim:
+                      </p>
+                      <div className="flex flex-wrap gap-1">
+                        {companies.slice(0, 5).map(company => (
+                          <button
+                            key={company.id}
+                            type="button"
+                            onClick={() => handleShowCompanyInfo(company)}
+                            className="inline-flex items-center px-2 py-1 text-xs bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                          >
+                            <span className="truncate max-w-20">{company.name}</span>
+                            <span className="ml-1">ℹ️</span>
+                          </button>
+                        ))}
+                        {companies.length > 5 && (
+                          <span className="text-xs text-gray-400 px-2 py-1">
+                            +{companies.length - 5} firma daha...
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Proje Yöneticisi */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Proje Yöneticisi *
                   </label>
-                  <select
-                    required
-                    value={newProject.projectManager}
-                    onChange={(e) => setNewProject({ ...newProject, projectManager: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
-                  >
-                    <option value="">Proje Yöneticisi Seçin</option>
-                    {allUsers
-                      .filter(user => user.role === 'admin' || user.role === 'manager')
-                      .map(user => (
-                        <option key={user.id} value={user.id}>
-                          {user.name} ({user.role === 'admin' ? 'Admin' : 'Proje Yöneticisi'})
-                        </option>
-                      ))
-                    }
-                  </select>
+                  
+                  {userData?.role === 'admin' ? (
+                    // ADMIN: Tüm manager ve admin'leri seçebilir
+                    <select
+                      required
+                      value={newProject.projectManager}
+                      onChange={(e) => setNewProject({ ...newProject, projectManager: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+                    >
+                      <option value="">Proje Yöneticisi Seçin</option>
+                      {allUsers
+                        .filter(user => user.role === 'admin' || user.role === 'manager')
+                        .map(user => (
+                          <option key={user.id} value={user.id}>
+                            {user.name} ({user.role === 'admin' ? 'Admin' : 'Proje Yöneticisi'})
+                          </option>
+                        ))
+                      }
+                    </select>
+                  ) : userData?.role === 'manager' ? (
+                    // MANAGER: Sadece kendisini seçebilir
+                    <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="font-medium text-blue-700 dark:text-blue-300">
+                            {userData.name}
+                          </p>
+                          <p className="text-sm text-blue-600 dark:text-blue-400">
+                            Proje Yöneticisi (Siz)
+                          </p>
+                        </div>
+                        <input
+                          type="checkbox"
+                          checked={true}
+                          readOnly
+                          className="h-4 w-4 text-blue-600 rounded"
+                        />
+                      </div>
+                      <input
+                        type="hidden"
+                        value={userData.id}
+                        onChange={(e) => setNewProject({ ...newProject, projectManager: userData.id })}
+                      />
+                      <p className="text-xs text-blue-600 dark:text-blue-400 mt-2">
+                        📝 Proje yöneticisi olarak otomatik atandınız
+                      </p>
+                    </div>
+                  ) : (
+                    // USER: Proje oluşturamaz
+                    <div className="p-3 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800">
+                      <p className="text-red-700 dark:text-red-300 text-sm">
+                        ⚠️ Proje oluşturma yetkiniz bulunmamaktadır.
+                      </p>
+                    </div>
+                  )}
                 </div>
 
                 {/* Üyeler - Yeni Checkbox Sistemi */}
@@ -464,10 +850,10 @@ const Projects = () => {
 
                         {/* Rol Badge */}
                         <span className={`px-2 py-1 text-xs rounded-full ${user.role === 'admin'
-                            ? 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-300'
-                            : user.role === 'manager'
-                              ? 'bg-purple-100 text-purple-800 dark:bg-purple-900/20 dark:text-purple-300'
-                              : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
+                          ? 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-300'
+                          : user.role === 'manager'
+                            ? 'bg-purple-100 text-purple-800 dark:bg-purple-900/20 dark:text-purple-300'
+                            : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
                           }`}>
                           {user.role === 'admin' ? 'Admin' : user.role === 'manager' ? 'Proje Yöneticisi' : 'Kullanıcı'}
                         </span>
@@ -543,6 +929,7 @@ const Projects = () => {
                     onClick={() => {
                       setShowAddProjectModal(false);
                       setUserSearch('');
+                      setIsProjectTypeOpen(false);
                     }}
                     className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                   >
@@ -556,6 +943,201 @@ const Projects = () => {
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Firma Ekleme Modalı */}
+      {showCompanyModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-60">
+          <div className="bg-white dark:bg-gray-800 rounded-lg max-w-md w-full">
+            <div className="p-6">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                  Yeni Firma Ekle
+                </h3>
+                <button
+                  onClick={() => {
+                    setShowCompanyModal(false);
+                    setNewCompany('');
+                  }}
+                  className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-xl"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Firma Adı *
+                  </label>
+                  <input
+                    type="text"
+                    value={newCompany}
+                    onChange={(e) => setNewCompany(e.target.value)}
+                    className="w-full px-3 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white text-sm"
+                    placeholder="Firma adını yazın..."
+                    onKeyPress={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddCompany();
+                      }
+                    }}
+                  />
+                </div>
+
+                <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-3">
+                  <p className="text-xs text-blue-600 dark:text-blue-400">
+                    💡 Firma eklendikten sonra listeden seçebilirsiniz.
+                  </p>
+                </div>
+
+                <div className="flex space-x-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowCompanyModal(false);
+                      setNewCompany('');
+                    }}
+                    className="flex-1 px-4 py-3 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors font-medium"
+                  >
+                    İptal
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleAddCompany}
+                    disabled={!newCompany.trim()}
+                    className="flex-1 px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Firma Ekle
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Firma Bilgileri Modalı */}
+      {showCompanyInfoModal && selectedCompanyInfo && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 modal-overlay">
+          <div className="bg-white dark:bg-gray-800 rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto model-container">
+            <div className="p-6">
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-xl font-bold text-gray-900 dark:text-white">
+                  🏢 {selectedCompanyInfo.name}
+                </h3>
+                <button
+                  onClick={() => setShowCompanyInfoModal(false)}
+                  className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-xl"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="space-y-6">
+                {/* Firma İstatistikleri */}
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="text-center p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                    <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">
+                      {selectedCompanyInfo.projects?.length || 0}
+                    </div>
+                    <div className="text-sm text-blue-600 dark:text-blue-400 mt-1">Toplam Proje</div>
+                  </div>
+                  
+                  <div className="text-center p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
+                    <div className="text-2xl font-bold text-green-600 dark:text-green-400">
+                      {selectedCompanyInfo.projects?.filter(p => p.status === 'active').length || 0}
+                    </div>
+                    <div className="text-sm text-green-600 dark:text-green-400 mt-1">Aktif Proje</div>
+                  </div>
+                  
+                  <div className="text-center p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                    <div className="text-2xl font-bold text-gray-600 dark:text-gray-400">
+                      {selectedCompanyInfo.projects?.filter(p => p.status === 'completed').length || 0}
+                    </div>
+                    <div className="text-sm text-gray-600 dark:text-gray-400 mt-1">Tamamlanan</div>
+                  </div>
+                </div>
+
+                {/* Firma Bilgileri */}
+                <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
+                  <h4 className="font-semibold text-gray-900 dark:text-white mb-3">Firma Bilgileri</h4>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-gray-600 dark:text-gray-400">Oluşturulma Tarihi:</span>
+                      <span className="font-medium text-gray-900 dark:text-white">
+                        {selectedCompanyInfo.createdAt?.toDate?.().toLocaleDateString('tr-TR') || 'Bilinmiyor'}
+                      </span>
+                    </div>
+                    
+                    {selectedCompanyInfo.createdByName && (
+                      <div className="flex justify-between">
+                        <span className="text-gray-600 dark:text-gray-400">Ekleyen:</span>
+                        <span className="font-medium text-gray-900 dark:text-white">
+                          {selectedCompanyInfo.createdByName}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Proje Geçmişi */}
+                <div>
+                  <h4 className="font-semibold text-gray-900 dark:text-white mb-3">
+                    Proje Geçmişi ({selectedCompanyInfo.projects?.length || 0})
+                  </h4>
+                  
+                  {selectedCompanyInfo.projects?.length === 0 ? (
+                    <div className="text-center py-6 text-gray-500 dark:text-gray-400">
+                      <div className="text-4xl mb-2">📁</div>
+                      <p>Henüz proje bulunmuyor</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3 max-h-60 overflow-y-auto">
+                      {selectedCompanyInfo.projects?.map(project => (
+                        <div
+                          key={project.id}
+                          className="flex items-center justify-between p-3 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                        >
+                          <div className="flex-1">
+                            <h5 className="font-medium text-gray-900 dark:text-white">
+                              {project.title}
+                            </h5>
+                            <div className="flex items-center space-x-4 mt-1 text-xs text-gray-500 dark:text-gray-400">
+                              <span>Başlangıç: {project.startDate?.toDate?.().toLocaleDateString('tr-TR') || '-'}</span>
+                              <span>Bitiş: {project.endDate?.toDate?.().toLocaleDateString('tr-TR') || '-'}</span>
+                            </div>
+                          </div>
+                          
+                          <span className={`px-2 py-1 text-xs rounded-full ${
+                            project.status === 'active' 
+                              ? 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-300'
+                              : project.status === 'completed'
+                              ? 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
+                              : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-300'
+                          }`}>
+                            {project.status === 'active' ? 'Aktif' : 
+                             project.status === 'completed' ? 'Tamamlandı' : 'Beklemede'}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Modal Kapatma Butonu */}
+                <div className="flex justify-end pt-4">
+                  <button
+                    onClick={() => setShowCompanyInfoModal(false)}
+                    className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors font-medium"
+                  >
+                    Tamam
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>

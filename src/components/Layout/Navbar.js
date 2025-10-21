@@ -32,8 +32,14 @@ const Navbar = () => {
   const navItems = [
     { path: '/', label: 'Kontrol Paneli', icon: '📊' },
     { path: '/projects', label: 'Projelerim', icon: '📁' },
-    { path: '/meetings', label: 'Toplantılarım', icon: '📅' },
   ];
+
+  // Sadece admin ve manager müşteri kartlarını görebilir
+  if (userData?.role === 'admin' || userData?.role === 'manager') {
+    navItems.push({ path: '/customers', label: 'Müşteri Kartları', icon: '🏢' });
+  }
+
+  navItems.push({ path: '/meetings', label: 'Toplantılarım', icon: '📅' });
 
   // Admin için ek link
   if (userData?.role === 'admin') {
@@ -204,10 +210,10 @@ const Navbar = () => {
                           >
                             <div className="flex items-start space-x-2 sm:space-x-3">
                               <div className={`w-6 h-6 sm:w-8 sm:h-8 rounded-full flex items-center justify-center flex-shrink-0 text-xs sm:text-sm ${notification.type === 'task_assigned' ? 'bg-green-100 text-green-600' :
-                                  notification.type === 'task_updated' ? 'bg-blue-100 text-blue-600' :
-                                    notification.type === 'meeting_created' ? 'bg-purple-100 text-purple-600' :
-                                      notification.type === 'meeting_request' ? 'bg-orange-100 text-orange-600' : // YENİ: meeting_request için stil
-                                        'bg-gray-100 text-gray-600'
+                                notification.type === 'task_updated' ? 'bg-blue-100 text-blue-600' :
+                                  notification.type === 'meeting_created' ? 'bg-purple-100 text-purple-600' :
+                                    notification.type === 'meeting_request' ? 'bg-orange-100 text-orange-600' : // YENİ: meeting_request için stil
+                                      'bg-gray-100 text-gray-600'
                                 }`}>
                                 {notification.type === 'task_assigned' ? '📋' :
                                   notification.type === 'task_updated' ? '✏️' :

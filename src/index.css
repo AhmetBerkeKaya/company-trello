@@ -149,6 +149,18 @@ body {
   height: 40px;
   animation: spin 2s linear infinite;
 }
+/* Z-index katmanları */
+.modal-overlay {
+  z-index: 1000 !important;
+}
+
+.modal-container {
+  z-index: 1001 !important;
+}
+
+.company-info-modal {
+  z-index: 1002 !important;
+}
 
 @keyframes spin {
   0% { transform: rotate(0deg); }

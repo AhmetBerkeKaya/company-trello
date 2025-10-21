@@ -217,12 +217,14 @@ const MeetingModal = ({ meeting, isOpen, onClose, onSave }) => {
   };
 
   // handleSubmit fonksiyonunu şu şekilde güncelleyin:
+  // handleSubmit fonksiyonunu şu şekilde güncelleyin:
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
 
+    // YENİ: Proje yöneticisi ve adminler için proje seçimi zorunlu
     if ((userData.role === 'manager' || userData.role === 'admin') && !formData.projectId) {
-      setError('Lütfen proje seçiniz!');
+      setError('Proje yöneticisi ve adminler toplantı oluştururken proje seçmek zorundadır!');
       return;
     }
 
@@ -352,16 +354,17 @@ const MeetingModal = ({ meeting, isOpen, onClose, onSave }) => {
               />
             </div>
 
-            {/* Proje Seçimi */}
+            {/* Proje Seçimi - YENİ: Zorunluluk bilgisi eklendi */}
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Proje
+                Proje {(userData.role === 'manager' || userData.role === 'admin') && '*'}
               </label>
               <select
                 name="projectId"
                 value={formData.projectId}
                 onChange={handleInputChange}
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                required={userData.role === 'manager' || userData.role === 'admin'} // YENİ: Zorunlu alan
               >
                 <option value="">Proje Seçin</option>
                 {projects.map(project => (
@@ -371,7 +374,13 @@ const MeetingModal = ({ meeting, isOpen, onClose, onSave }) => {
                 ))}
               </select>
               <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                Toplantıyı bir projeye bağlayabilirsiniz
+                {userData.role === 'user' ? (
+                  'Toplantıyı bir projeye bağlayabilirsiniz (opsiyonel)'
+                ) : (
+                  <span className="text-orange-600 dark:text-orange-400 font-medium">
+                    • Proje yöneticisi ve adminler için proje seçimi zorunludur
+                  </span>
+                )}
               </div>
             </div>
 
