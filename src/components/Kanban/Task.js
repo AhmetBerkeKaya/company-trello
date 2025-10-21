@@ -36,16 +36,54 @@ const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message }) => {
   );
 };
 
+// YENİ: Tarih durumunu kontrol eden fonksiyon
+const getDateStatus = (dueDate) => {
+  if (!dueDate) return null;
+  
+  const today = new Date();
+  const due = dueDate.toDate ? dueDate.toDate() : new Date(dueDate);
+  const timeDiff = due.getTime() - today.getTime();
+  const daysDiff = Math.ceil(timeDiff / (1000 * 3600 * 24));
+  
+  if (daysDiff < 0) return { 
+    status: 'overdue', 
+    text: 'Süresi geçmiş', 
+    class: 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-300',
+    icon: '🔴'
+  };
+  if (daysDiff === 0) return { 
+    status: 'today', 
+    text: 'Bugün', 
+    class: 'bg-orange-100 text-orange-800 dark:bg-orange-900/20 dark:text-orange-300',
+    icon: '🟠'
+  };
+  if (daysDiff <= 3) return { 
+    status: 'urgent', 
+    text: 'Yaklaşıyor', 
+    class: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-300',
+    icon: '🟡'
+  };
+  return { 
+    status: 'normal', 
+    text: 'Planlanan', 
+    class: 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-300',
+    icon: '🟢'
+  };
+};
+
 // Draggable Task Component
-const DraggableTask = ({ task, onUpdate, userRole, currentUserId }) => { // YENİ: userRole ve currentUserId prop'ları eklendi
+const DraggableTask = ({ task, onUpdate, userRole, currentUserId }) => {
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [assignedUser, setAssignedUser] = useState(null);
 
-  // YENİ: Kullanıcı yetkisi kontrolleri
+  // Kullanıcı yetkisi kontrolleri
   const canEditTask = userRole === 'admin' || userRole === 'manager' || task.createdBy === currentUserId;
   const canDeleteTask = userRole === 'admin' || userRole === 'manager' || task.createdBy === currentUserId;
   const canDragTask = userRole === 'admin' || userRole === 'manager' || task.assignee === currentUserId;
+
+  // YENİ: Tarih durumu
+  const dateStatus = task.dueDate ? getDateStatus(task.dueDate) : null;
 
   // Drag configuration
   const [{ isDragging }, drag, dragPreview] = useDrag(() => ({
@@ -58,7 +96,7 @@ const DraggableTask = ({ task, onUpdate, userRole, currentUserId }) => { // YEN�
     collect: (monitor) => ({
       isDragging: !!monitor.isDragging(),
     }),
-    canDrag: () => canDragTask, // YENİ: Sürükleme yetkisi kontrolü
+    canDrag: () => canDragTask,
   }), [task.id, task.status, canDragTask]);
 
   // Fetch assigned user
@@ -128,12 +166,18 @@ const DraggableTask = ({ task, onUpdate, userRole, currentUserId }) => { // YEN�
               <span className="text-xs text-gray-600 dark:text-gray-400">{assignedUser.name}</span>
             </div>
           )}
+          {/* YENİ: Drag preview'da tarih */}
+          {dateStatus && (
+            <div className={`text-xs px-1 py-0.5 rounded mt-1 ${dateStatus.class}`}>
+              {dateStatus.icon} {task.dueDate?.toDate?.().toLocaleDateString('tr-TR')}
+            </div>
+          )}
         </div>
       )}
 
       {/* Normal task görünümü */}
       <div
-        ref={canDragTask ? drag : null} // DÜZELTİLDİ: drag referansını doğru kullan
+        ref={canDragTask ? drag : null}
         style={{
           opacity: isDragging ? 0 : 1,
           cursor: canDragTask ? 'grab' : 'pointer'
@@ -142,7 +186,7 @@ const DraggableTask = ({ task, onUpdate, userRole, currentUserId }) => { // YEN�
           }`}
         onClick={handleClick}
       >
-        {/* Sil butonu - YENİ: Sadece yetkili kullanıcılar görebilir */}
+        {/* Sil butonu */}
         {canDeleteTask && (
           <button
             onClick={handleDeleteClick}
@@ -165,7 +209,19 @@ const DraggableTask = ({ task, onUpdate, userRole, currentUserId }) => { // YEN�
           </p>
         )}
 
-        {/* Atanan Kişi - Daha Belirgin */}
+        {/* YENİ: Bitiş tarihi - Üstte göster */}
+        {dateStatus && (
+          <div className={`flex items-center space-x-1 mb-2 px-2 py-1 rounded text-xs ${dateStatus.class}`}>
+            <span>{dateStatus.icon}</span>
+            <span className="font-medium">
+              {task.dueDate?.toDate?.().toLocaleDateString('tr-TR')}
+            </span>
+            <span>•</span>
+            <span>{dateStatus.text}</span>
+          </div>
+        )}
+
+        {/* Atanan Kişi */}
         {assignedUser && (
           <div className="flex items-center space-x-2 mb-2 p-1 bg-blue-50 dark:bg-blue-900/20 rounded">
             <div className="w-5 h-5 bg-blue-600 rounded-full flex items-center justify-center text-white text-xs font-semibold flex-shrink-0">
@@ -185,16 +241,16 @@ const DraggableTask = ({ task, onUpdate, userRole, currentUserId }) => { // YEN�
         </div>
       </div>
 
-      {/* Task Detail Modal - YENİ: Düzenleme yetkisi prop'u eklendi */}
+      {/* Task Detail Modal */}
       <TaskDetailModal
         task={task}
         isOpen={showDetailModal}
         onClose={() => setShowDetailModal(false)}
         onUpdate={onUpdate}
-        canEdit={canEditTask} // YENİ: Düzenleme yetkisi
+        canEdit={canEditTask}
       />
 
-      {/* Silme Onay Modal'ı - YENİ: Sadece yetkili kullanıcılar için */}
+      {/* Silme Onay Modal'ı */}
       {canDeleteTask && (
         <ConfirmModal
           isOpen={showDeleteModal}

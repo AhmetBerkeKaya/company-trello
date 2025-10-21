@@ -34,12 +34,13 @@ const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message }) => {
   );
 };
 
-const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, canEdit }) => { // YENİ: canEdit prop'u eklendi
+const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, canEdit }) => {
   const { userData } = useAuth();
   const [activeTab, setActiveTab] = useState('details');
   const [title, setTitle] = useState(task?.title || '');
   const [description, setDescription] = useState(task?.description || '');
   const [assignee, setAssignee] = useState(task?.assignee || '');
+  const [dueDate, setDueDate] = useState(task?.dueDate || ''); // YENİ: Bitiş tarihi
   const [comments, setComments] = useState([]);
   const [newComment, setNewComment] = useState('');
   const [loading, setLoading] = useState(false);
@@ -56,6 +57,8 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, canEdit }) => { // Y
       setTitle(task.title);
       setDescription(task.description || '');
       setAssignee(task.assignee || '');
+      // YENİ: Bitiş tarihini formatla
+      setDueDate(task.dueDate ? new Date(task.dueDate?.toDate?.()).toISOString().split('T')[0] : '');
       fetchComments();
       fetchProjectMembers();
       if (task.assignee) {
@@ -109,11 +112,10 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, canEdit }) => { // Y
         ...doc.data()
       }));
 
-      // İstemci tarafında sırala (Firestore index gerektirmemek için)
       commentsData.sort((a, b) => {
         const dateA = a.createdAt?.toDate?.() || new Date(0);
         const dateB = b.createdAt?.toDate?.() || new Date(0);
-        return dateA - dateB; // Eskiden yeniye
+        return dateA - dateB;
       });
 
       setComments(commentsData);
@@ -150,18 +152,41 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, canEdit }) => { // Y
     }
   };
 
-  // handleSave fonksiyonunu şu şekilde güncelleyin:
+  // YENİ: Tarih durumunu kontrol eden fonksiyon
+  const getDateStatus = (dueDate) => {
+    if (!dueDate) return null;
+    
+    const today = new Date();
+    const due = new Date(dueDate);
+    const timeDiff = due.getTime() - today.getTime();
+    const daysDiff = Math.ceil(timeDiff / (1000 * 3600 * 24));
+    
+    if (daysDiff < 0) return { status: 'overdue', text: 'Süresi geçmiş', class: 'text-red-600 bg-red-100' };
+    if (daysDiff === 0) return { status: 'today', text: 'Bugün', class: 'text-orange-600 bg-orange-100' };
+    if (daysDiff <= 3) return { status: 'urgent', text: 'Yaklaşıyor', class: 'text-yellow-600 bg-yellow-100' };
+    return { status: 'normal', text: 'Planlanan', class: 'text-green-600 bg-green-100' };
+  };
+
   const handleSave = async () => {
-    if (!task || !canEdit) return; // YENİ: canEdit kontrolü
+    if (!task || !canEdit) return;
 
     setLoading(true);
     try {
-      await updateDoc(doc(db, 'tasks', task.id), {
+      const updateData = {
         title,
         description,
         assignee,
         updatedAt: new Date()
-      });
+      };
+
+      // YENİ: Bitiş tarihini ekle
+      if (dueDate) {
+        updateData.dueDate = new Date(dueDate);
+      } else {
+        updateData.dueDate = null;
+      }
+
+      await updateDoc(doc(db, 'tasks', task.id), updateData);
 
       // PROJE BİLGİSİNİ AL
       let projectTitle = 'Proje';
@@ -178,7 +203,6 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, canEdit }) => { // Y
 
       // BİLDİRİM GÖNDER
       if (assignee !== task.assignee) {
-        // YENİ ATAMA - notifyTaskAssignment
         if (assignee) {
           await notifyTaskAssignment(
             {
@@ -192,14 +216,14 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, canEdit }) => { // Y
             { id: userData.id, name: userData.name }
           );
         }
-      } else if (title !== task.title || description !== task.description) {
-        // GÖREV GÜNCELLEME - notifyTaskUpdate
+      } else if (title !== task.title || description !== task.description || dueDate !== task.dueDate) {
         await notifyTaskUpdate(
           {
             ...task,
             title,
             description,
             assignee,
+            dueDate: dueDate ? new Date(dueDate) : null,
             projectTitle,
             id: task.id
           },
@@ -218,7 +242,6 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, canEdit }) => { // Y
 
   // Atanan kişiyi değiştir
   const handleAssigneeChange = async (userId) => {
-    // YENİ: canAssignUser kontrolü
     if (!canAssignUser) {
       alert('Kullanıcı atama yetkiniz yok! Sadece admin ve proje yöneticileri kullanıcı atayabilir.');
       return;
@@ -263,6 +286,8 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, canEdit }) => { // Y
 
   if (!isOpen || !task) return null;
 
+  const dateStatus = getDateStatus(dueDate);
+
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="bg-white rounded-lg w-full max-w-2xl max-h-[90vh] overflow-hidden">
@@ -270,7 +295,6 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, canEdit }) => { // Y
         <div className="px-6 py-4 border-b border-gray-200">
           <div className="flex justify-between items-start">
             <div className="flex-1">
-              {/* YENİ: canEdit kontrolü - Sadece yetkililer input'u kullanabilir */}
               {canEdit ? (
                 <input
                   type="text"
@@ -290,6 +314,16 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, canEdit }) => { // Y
                 <span className="text-sm text-gray-500">
                   {task.createdAt?.toDate?.().toLocaleDateString('tr-TR')}
                 </span>
+
+                {/* YENİ: Bitiş tarihi badge'i */}
+                {dueDate && dateStatus && (
+                  <>
+                    <span className="text-sm text-gray-500">•</span>
+                    <span className={`text-xs px-2 py-1 rounded-full ${dateStatus.class}`}>
+                      📅 {new Date(dueDate).toLocaleDateString('tr-TR')} • {dateStatus.text}
+                    </span>
+                  </>
+                )}
 
                 {/* Atanan Kişi Badge'i */}
                 {assignedUser && (
@@ -347,7 +381,6 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, canEdit }) => { // Y
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Açıklama
                 </label>
-                {/* YENİ: canEdit kontrolü - Sadece yetkililer textarea'yı kullanabilir */}
                 {canEdit ? (
                   <textarea
                     value={description}
@@ -367,7 +400,63 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, canEdit }) => { // Y
                 )}
               </div>
 
-              {/* Geliştirilmiş Atanan Kişi Seçimi */}
+              {/* YENİ: Bitiş Tarihi */}
+              <div>
+                <div className="flex justify-between items-center mb-2">
+                  <label className="block text-sm font-medium text-gray-700">
+                    Bitiş Tarihi
+                  </label>
+                  {dateStatus && (
+                    <span className={`text-xs px-2 py-1 rounded ${dateStatus.class}`}>
+                      {dateStatus.text}
+                    </span>
+                  )}
+                </div>
+                
+                {canEdit ? (
+                  <input
+                    type="date"
+                    value={dueDate}
+                    onChange={(e) => setDueDate(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    min={new Date().toISOString().split('T')[0]}
+                  />
+                ) : (
+                  <div className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50">
+                    {dueDate ? (
+                      <div className="flex items-center space-x-2">
+                        <span>📅</span>
+                        <span>{new Date(dueDate).toLocaleDateString('tr-TR')}</span>
+                        {dateStatus && (
+                          <span className={`text-xs px-2 py-1 rounded ml-2 ${dateStatus.class}`}>
+                            {dateStatus.text}
+                          </span>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-gray-500">Belirlenmemiş</span>
+                    )}
+                  </div>
+                )}
+                
+                {dueDate && (
+                  <div className="mt-2 text-xs text-gray-500">
+                    {(() => {
+                      const today = new Date();
+                      const due = new Date(dueDate);
+                      const timeDiff = due.getTime() - today.getTime();
+                      const daysDiff = Math.ceil(timeDiff / (1000 * 3600 * 24));
+                      
+                      if (daysDiff < 0) return `🕐 ${Math.abs(daysDiff)} gün önce süresi doldu`;
+                      if (daysDiff === 0) return `⏰ Bugün süresi doluyor`;
+                      if (daysDiff === 1) return `⏰ Yarın süresi doluyor`;
+                      return `📅 ${daysDiff} gün kaldı`;
+                    })()}
+                  </div>
+                )}
+              </div>
+
+              {/* Atanan Kişi Seçimi */}
               <div>
                 <div className="flex justify-between items-center mb-2">
                   <label className="block text-sm font-medium text-gray-700">
@@ -400,7 +489,6 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, canEdit }) => { // Y
                     </select>
                   </>
                 ) : (
-                  /* Sadece okuma modu - normal kullanıcılar için */
                   <div className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50">
                     {assignedUser ? (
                       <div className="flex items-center space-x-3">
@@ -441,6 +529,7 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, canEdit }) => { // Y
             </div>
           )}
 
+          {/* Diğer tab'lar aynı kalıyor */}
           {activeTab === 'comments' && (
             <div className="space-y-4">
               {/* Yorum Listesi */}
@@ -533,10 +622,9 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, canEdit }) => { // Y
           )}
         </div>
 
-        {/* Footer - YENİ: canEdit kontrolü */}
+        {/* Footer */}
         <div className="px-6 py-4 border-t border-gray-200 bg-gray-50">
           <div className="flex justify-between items-center">
-            {/* YENİ: Sil butonu sadece yetkililer için */}
             {canDeleteTask && (
               <button
                 onClick={() => setShowDeleteModal(true)}
@@ -555,7 +643,6 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, canEdit }) => { // Y
                 {canEdit ? 'İptal' : 'Kapat'}
               </button>
               
-              {/* YENİ: Kaydet butonu sadece yetkililer için */}
               {canEdit && (
                 <button
                   onClick={handleSave}
@@ -571,7 +658,7 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, canEdit }) => { // Y
         </div>
       </div>
 
-      {/* Silme Onay Modal'ı - YENİ: Sadece yetkililer için */}
+      {/* Silme Onay Modal'ı */}
       {canDeleteTask && (
         <ConfirmModal
           isOpen={showDeleteModal}
