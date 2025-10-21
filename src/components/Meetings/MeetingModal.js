@@ -221,6 +221,11 @@ const MeetingModal = ({ meeting, isOpen, onClose, onSave }) => {
     e.preventDefault();
     setError('');
 
+    if ((userData.role === 'manager' || userData.role === 'admin') && !formData.projectId) {
+      setError('Lütfen proje seçiniz!');
+      return;
+    }
+
     if (!formData.title.trim() || !formData.startTime || !formData.endTime) {
       setError('Lütfen zorunlu alanları doldurun (Başlık, Başlangıç ve Bitiş zamanı)');
       return;
