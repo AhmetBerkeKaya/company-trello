@@ -204,13 +204,16 @@ const Navbar = () => {
                           >
                             <div className="flex items-start space-x-2 sm:space-x-3">
                               <div className={`w-6 h-6 sm:w-8 sm:h-8 rounded-full flex items-center justify-center flex-shrink-0 text-xs sm:text-sm ${notification.type === 'task_assigned' ? 'bg-green-100 text-green-600' :
-                                notification.type === 'task_updated' ? 'bg-blue-100 text-blue-600' :
-                                  notification.type === 'meeting_created' ? 'bg-purple-100 text-purple-600' :
-                                    'bg-gray-100 text-gray-600'
+                                  notification.type === 'task_updated' ? 'bg-blue-100 text-blue-600' :
+                                    notification.type === 'meeting_created' ? 'bg-purple-100 text-purple-600' :
+                                      notification.type === 'meeting_request' ? 'bg-orange-100 text-orange-600' : // YENİ: meeting_request için stil
+                                        'bg-gray-100 text-gray-600'
                                 }`}>
                                 {notification.type === 'task_assigned' ? '📋' :
                                   notification.type === 'task_updated' ? '✏️' :
-                                    notification.type === 'meeting_created' ? '📅' : '🔔'}
+                                    notification.type === 'meeting_created' ? '📅' :
+                                      notification.type === 'meeting_request' ? '📨' : // YENİ: meeting_request için ikon
+                                        '🔔'}
                               </div>
 
                               <div className="flex-1 min-w-0">
@@ -218,12 +221,19 @@ const Navbar = () => {
                                   {notification.type === 'task_assigned' && `Yeni görev: ${notification.taskTitle}`}
                                   {notification.type === 'task_updated' && `Görev güncellendi: ${notification.taskTitle}`}
                                   {notification.type === 'meeting_created' && `Yeni toplantı: ${notification.meetingTitle}`}
+                                  {notification.type === 'meeting_request' && `Toplantı İsteği: ${notification.metadata?.meetingTitle || 'Yeni talep'}`} {/* YENİ: meeting_request için başlık */}
                                 </p>
                                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 truncate">
                                   {notification.type === 'task_assigned' && `${notification.senderName} size görev atadı`}
                                   {notification.type === 'task_updated' && `${notification.senderName} görevi güncelledi`}
                                   {notification.type === 'meeting_created' && `${notification.senderName} toplantı oluşturdu`}
+                                  {notification.type === 'meeting_request' && `${notification.metadata?.requestedByName || 'Bir kullanıcı'} toplantı talebinde bulundu`} {/* YENİ: meeting_request için açıklama */}
                                 </p>
+                                {notification.type === 'meeting_request' && notification.metadata?.reason && ( // YENİ: Talep nedeni gösterimi
+                                  <p className="text-xs text-gray-600 dark:text-gray-500 mt-1 line-clamp-2">
+                                    📝 {notification.metadata.reason}
+                                  </p>
+                                )}
                                 <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
                                   {notification.createdAt?.toDate?.().toLocaleString('tr-TR') || 'Yeni'}
                                 </p>

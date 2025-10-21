@@ -5,49 +5,42 @@ import { db } from '../firebase/config';
 import LoadingSpinner from '../components/UI/LoadingSpinner';
 import MeetingCalendar from '../components/Meetings/MeetingCalendar';
 import MeetingModal from '../components/Meetings/MeetingModal';
-import { useLocation } from 'react-router-dom'; // ← BU SATIRI EKLEYİN
+import MeetingRequestModal from '../components/Meetings/MeetingRequestModal'; // YENİ: Toplantı isteği modal'ı
+import { useLocation } from 'react-router-dom';
 
 const Meetings = () => {
   const { userData } = useAuth();
-  const location = useLocation(); // ← BU SATIRI EKLEYİN
+  const location = useLocation();
   const [meetings, setMeetings] = useState([]);
   const [showMeetingModal, setShowMeetingModal] = useState(false);
+  const [showMeetingRequestModal, setShowMeetingRequestModal] = useState(false); // YENİ: Toplantı isteği modal state'i
   const [selectedMeeting, setSelectedMeeting] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState('calendar'); // 'calendar' or 'list'
+  const [view, setView] = useState('calendar');
 
-  // YENİ: Location state'inden gelen view'i kontrol et
   useEffect(() => {
     if (location.state?.activeTab === 'agenda') {
-      setView('list'); // 'agenda' tab'ı için 'list' view'ını kullan
+      setView('list');
     }
   }, [location.state]);
 
-  // Mevcut useEffect'i koruyun
   useEffect(() => {
     fetchMeetings();
   }, [userData]);
 
-  // fetchMeetings fonksiyonu aynı kalacak...
   const fetchMeetings = async () => {
     if (!userData) return;
 
     try {
       setLoading(true);
-
       const meetingsQuery = query(
         collection(db, 'meetings'),
         where('participants', 'array-contains', userData.id)
       );
 
-      console.log('🔍 Meetings sorgusu hazır');
-
       const meetingsSnapshot = await getDocs(meetingsQuery);
-      console.log('📊 Meetings sorgu sonucu:', meetingsSnapshot.docs.length, 'toplantı');
-
       const meetingsData = meetingsSnapshot.docs.map(doc => {
         const data = doc.data();
-        console.log('📄 Meeting verisi:', doc.id, data);
         return {
           id: doc.id,
           ...data
@@ -61,10 +54,8 @@ const Meetings = () => {
       });
 
       setMeetings(meetingsData);
-
     } catch (error) {
       console.error('❌ Toplantıları getirme hatası:', error);
-
       try {
         const allMeetingsSnapshot = await getDocs(collection(db, 'meetings'));
         const allMeetings = allMeetingsSnapshot.docs.map(doc => ({
@@ -83,8 +74,6 @@ const Meetings = () => {
         });
 
         setMeetings(userMeetings);
-        console.log('🔄 Geçici çözüm:', userMeetings.length, 'toplantı');
-
       } catch (fallbackError) {
         console.error('Geçici çözüm de başarısız:', fallbackError);
       }
@@ -93,10 +82,14 @@ const Meetings = () => {
     }
   };
 
-  // Diğer fonksiyonlar aynı kalacak...
   const handleCreateMeeting = () => {
     setSelectedMeeting(null);
     setShowMeetingModal(true);
+  };
+
+  // YENİ: Toplantı isteği oluşturma
+  const handleCreateMeetingRequest = () => {
+    setShowMeetingRequestModal(true);
   };
 
   const handleEditMeeting = (meeting) => {
@@ -107,6 +100,11 @@ const Meetings = () => {
   const handleCloseModal = () => {
     setShowMeetingModal(false);
     setSelectedMeeting(null);
+  };
+
+  // YENİ: Toplantı isteği modal'ını kapatma
+  const handleCloseRequestModal = () => {
+    setShowMeetingRequestModal(false);
   };
 
   // Yaklaşan toplantıları filtrele
@@ -143,7 +141,7 @@ const Meetings = () => {
         </div>
 
         <div className="flex items-center space-x-4">
-          {/* View Toggle - GÜNCELLENDİ */}
+          {/* View Toggle */}
           <div className="bg-gray-100 dark:bg-gray-700 rounded-lg p-1 flex">
             <button
               onClick={() => setView('calendar')}
@@ -165,65 +163,79 @@ const Meetings = () => {
             </button>
           </div>
 
-          {/* Yeni Toplantı Butonu */}
-          {(userData?.role === 'admin' || userData?.role === 'project-manager') && (
-            <button
-              onClick={handleCreateMeeting}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center space-x-2"
-            >
-              <span>+</span>
-              <span>Yeni Toplantı</span>
-            </button>
-          )}
+          {/* Butonlar - YENİ: Kullanıcılar için toplantı isteği butonu */}
+          <div className="flex space-x-2">
+            {/* Kullanıcılar için Toplantı İsteği Butonu */}
+            {userData?.role === 'user' && (
+              <button
+                onClick={handleCreateMeetingRequest}
+                className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center space-x-2"
+              >
+                <span>📨</span>
+                <span>Toplantı İsteği</span>
+              </button>
+            )}
+
+            {/* Admin ve Manager için Normal Toplantı Oluşturma Butonu */}
+            {(userData?.role === 'admin' || userData?.role === 'manager') && (
+              <button
+                onClick={handleCreateMeeting}
+                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center space-x-2"
+              >
+                <span>+</span>
+                <span>Yeni Toplantı</span>
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* İstatistik Kartları - AYNI KALACAK */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow dark:shadow-gray-900/50 p-6">
+      {/* İstatistik Kartları - Kompakt versiyon */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow dark:shadow-gray-900/50 p-4">
           <div className="flex items-center">
-            <div className="p-3 rounded-full bg-blue-100 text-blue-600 dark:bg-blue-900/20 dark:text-blue-300">
-              <span className="text-2xl">📅</span>
+            <div className="p-2 rounded-full bg-blue-100 text-blue-600 dark:bg-blue-900/20 dark:text-blue-300">
+              <span className="text-xl">📅</span>
             </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Toplam Toplantı</p>
-              <p className="text-2xl font-semibold text-gray-900 dark:text-white">{meetings.length}</p>
+            <div className="ml-3">
+              <p className="text-xs font-medium text-gray-600 dark:text-gray-400">Toplam Toplantı</p>
+              <p className="text-lg font-semibold text-gray-900 dark:text-white">{meetings.length}</p>
             </div>
           </div>
         </div>
 
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow dark:shadow-gray-900/50 p-6">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow dark:shadow-gray-900/50 p-4">
           <div className="flex items-center">
-            <div className="p-3 rounded-full bg-green-100 text-green-600 dark:bg-green-900/20 dark:text-green-300">
-              <span className="text-2xl">🕒</span>
+            <div className="p-2 rounded-full bg-green-100 text-green-600 dark:bg-green-900/20 dark:text-green-300">
+              <span className="text-xl">🕒</span>
             </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Yaklaşan</p>
-              <p className="text-2xl font-semibold text-gray-900 dark:text-white">{upcomingMeetings.length}</p>
+            <div className="ml-3">
+              <p className="text-xs font-medium text-gray-600 dark:text-gray-400">Yaklaşan</p>
+              <p className="text-lg font-semibold text-gray-900 dark:text-white">{upcomingMeetings.length}</p>
             </div>
           </div>
         </div>
 
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow dark:shadow-gray-900/50 p-6">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow dark:shadow-gray-900/50 p-4">
           <div className="flex items-center">
-            <div className="p-3 rounded-full bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400">
-              <span className="text-2xl">✅</span>
+            <div className="p-2 rounded-full bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400">
+              <span className="text-xl">✅</span>
             </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Tamamlanan</p>
-              <p className="text-2xl font-semibold text-gray-900 dark:text-white">{pastMeetings.length}</p>
+            <div className="ml-3">
+              <p className="text-xs font-medium text-gray-600 dark:text-gray-400">Tamamlanan</p>
+              <p className="text-lg font-semibold text-gray-900 dark:text-white">{pastMeetings.length}</p>
             </div>
           </div>
         </div>
 
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow dark:shadow-gray-900/50 p-6">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow dark:shadow-gray-900/50 p-4">
           <div className="flex items-center">
-            <div className="p-3 rounded-full bg-purple-100 text-purple-600 dark:bg-purple-900/20 dark:text-purple-300">
-              <span className="text-2xl">👥</span>
+            <div className="p-2 rounded-full bg-purple-100 text-purple-600 dark:bg-purple-900/20 dark:text-purple-300">
+              <span className="text-xl">👥</span>
             </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Bu Hafta</p>
-              <p className="text-2xl font-semibold text-gray-900 dark:text-white">
+            <div className="ml-3">
+              <p className="text-xs font-medium text-gray-600 dark:text-gray-400">Bu Hafta</p>
+              <p className="text-lg font-semibold text-gray-900 dark:text-white">
                 {meetings.filter(meeting => {
                   const meetingTime = meeting.startTime?.toDate?.();
                   const oneWeekAgo = new Date();
@@ -297,11 +309,18 @@ const Meetings = () => {
         onClose={handleCloseModal}
         onSave={fetchMeetings}
       />
+
+      {/* YENİ: Toplantı İsteği Modal'ı */}
+      <MeetingRequestModal
+        isOpen={showMeetingRequestModal}
+        onClose={handleCloseRequestModal}
+        onSave={fetchMeetings}
+      />
     </div>
   );
 };
 
-// MeetingListItem component'i aynı kalacak...
+// MeetingListItem component'i
 const MeetingListItem = ({ meeting, onEdit }) => {
   const startTime = meeting.startTime?.toDate?.();
   const endTime = meeting.endTime?.toDate?.();

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'; // YENİ: useEffect eklendi
+import React, { useState, useEffect, useMemo } from 'react'; // YENİ: useMemo eklendi
 import { Calendar, momentLocalizer } from 'react-big-calendar';
 import moment from 'moment';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
@@ -12,6 +12,9 @@ const MeetingCalendar = ({ meetings, onMeetingClick }) => {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [view, setView] = useState('month');
   const [debugInfo, setDebugInfo] = useState('');
+
+  // YENİ: Mevcut tarih ve saat için state
+  const [defaultDate, setDefaultDate] = useState(new Date());
 
   // Toplantıları calendar formatına çevir
   const calendarEvents = meetings.map(meeting => {
@@ -32,12 +35,28 @@ const MeetingCalendar = ({ meetings, onMeetingClick }) => {
     };
   });
 
-  // YENİ: useEffect import edildi, artık çalışacak
   useEffect(() => {
     setDebugInfo(`${meetings.length} toplantı, ${calendarEvents.length} event`);
     console.log('🔍 Meetings data:', meetings);
     console.log('🎯 Calendar events:', calendarEvents);
   }, [meetings, calendarEvents]);
+
+  // YENİ: View değiştiğinde tarihi güncelle
+  useEffect(() => {
+    const now = new Date();
+    setDefaultDate(now);
+    
+    // Eğer hafta veya gün görünümündeyse, mevcut saate göre ayarla
+    if (view === 'week' || view === 'day') {
+      setCurrentDate(now);
+    }
+  }, [view]);
+
+  // YENİ: Haftalık görünüm için scroll saati - useMemo ile optimize
+  const scrollToTime = useMemo(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours(), 0, 0);
+  }, []);
 
   // Takvim event stilini özelleştir
   const eventStyleGetter = (event) => {
@@ -75,6 +94,23 @@ const MeetingCalendar = ({ meetings, onMeetingClick }) => {
     console.log('Seçilen slot:', start, end);
   };
 
+  // View değiştiğinde
+  const handleViewChange = (newView) => {
+    setView(newView);
+    
+    // YENİ: Hafta veya gün görünümüne geçerken mevcut tarihe git
+    if (newView === 'week' || newView === 'day') {
+      setCurrentDate(new Date());
+    }
+  };
+
+  // Bugün butonuna tıklama
+  const handleTodayClick = () => {
+    const now = new Date();
+    setCurrentDate(now);
+    setDefaultDate(now);
+  };
+
   // Türkçe mesajlar
   const messages = {
     allDay: 'Tüm gün',
@@ -102,7 +138,7 @@ const MeetingCalendar = ({ meetings, onMeetingClick }) => {
           {['month', 'week', 'day', 'agenda'].map((viewType) => (
             <button
               key={viewType}
-              onClick={() => setView(viewType)}
+              onClick={() => handleViewChange(viewType)}
               className={`px-3 py-1 text-sm font-medium rounded-md transition-colors capitalize ${
                 view === viewType 
                   ? 'bg-white dark:bg-gray-600 text-blue-600 dark:text-blue-400 shadow-sm' 
@@ -116,7 +152,7 @@ const MeetingCalendar = ({ meetings, onMeetingClick }) => {
       </div>
 
       {/* Takvim */}
-      <div className="h-[600px]">
+      <div className="h-[500px]">
         <Calendar
           localizer={localizer}
           events={calendarEvents}
@@ -125,7 +161,7 @@ const MeetingCalendar = ({ meetings, onMeetingClick }) => {
           views={['month', 'week', 'day', 'agenda']}
           view={view}
           date={currentDate}
-          onView={setView}
+          onView={handleViewChange}
           onNavigate={setCurrentDate}
           onSelectEvent={handleSelectEvent}
           onSelectSlot={handleSelectSlot}
@@ -135,29 +171,30 @@ const MeetingCalendar = ({ meetings, onMeetingClick }) => {
           messages={messages}
           step={30}
           showMultiDayTimes
-          defaultDate={new Date()}
+          defaultDate={defaultDate}
+          scrollToTime={scrollToTime}
           style={{ 
             height: '100%',
             fontFamily: 'system-ui, -apple-system, sans-serif'
           }}
           components={{
             event: CustomEvent,
-            toolbar: CustomToolbar
+            toolbar: (props) => <CustomToolbar {...props} onTodayClick={handleTodayClick} />
           }}
         />
       </div>
 
       {/* Lejant */}
-      <div className="mt-4 flex flex-wrap gap-4 text-sm">
-        <div className="flex items-center space-x-2">
+      <div className="mt-4 flex flex-wrap gap-3 text-xs">
+        <div className="flex items-center space-x-1">
           <div className="w-3 h-3 bg-blue-500 rounded"></div>
-          <span className="text-gray-700 dark:text-gray-300">Gelecek Toplantı</span>
+          <span className="text-gray-700 dark:text-gray-300">Gelecek</span>
         </div>
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-1">
           <div className="w-3 h-3 bg-red-500 rounded"></div>
           <span className="text-gray-700 dark:text-gray-300">Devam Eden</span>
         </div>
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-1">
           <div className="w-3 h-3 bg-gray-500 rounded"></div>
           <span className="text-gray-700 dark:text-gray-300">Geçmiş</span>
         </div>
@@ -173,45 +210,45 @@ const CustomEvent = ({ event }) => {
   
   return (
     <div className="p-1 text-xs leading-tight">
-      <div className="font-semibold truncate text-white">{event.title}</div>
-      <div className="truncate text-white/90">{startTime} - {endTime}</div>
+      <div className="font-semibold truncate text-white text-[10px]">{event.title}</div>
+      <div className="truncate text-white/90 text-[9px]">{startTime} - {endTime}</div>
       {event.location && (
-        <div className="truncate text-white/80" title={event.location}>📍 {event.location}</div>
+        <div className="truncate text-white/80 text-[9px]" title={event.location}>📍 {event.location}</div>
       )}
     </div>
   );
 };
 
 // Özelleştirilmiş Toolbar Component'i
-const CustomToolbar = ({ label, onNavigate, onView }) => {
+const CustomToolbar = ({ label, onNavigate, onView, onTodayClick }) => {
   return (
-    <div className="flex justify-between items-center mb-4 p-2 bg-gray-50 dark:bg-gray-700 rounded-lg">
-      <div className="flex space-x-2">
+    <div className="flex justify-between items-center mb-3 p-2 bg-gray-50 dark:bg-gray-700 rounded-lg">
+      <div className="flex space-x-1">
         <button
           onClick={() => onNavigate('PREV')}
-          className="px-3 py-1 bg-white dark:bg-gray-600 border border-gray-300 dark:border-gray-500 rounded text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-500"
+          className="px-2 py-1 bg-white dark:bg-gray-600 border border-gray-300 dark:border-gray-500 rounded text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-500"
         >
           ‹ Önceki
         </button>
         <button
-          onClick={() => onNavigate('TODAY')}
-          className="px-3 py-1 bg-white dark:bg-gray-600 border border-gray-300 dark:border-gray-500 rounded text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-500"
+          onClick={onTodayClick}
+          className="px-2 py-1 bg-white dark:bg-gray-600 border border-gray-300 dark:border-gray-500 rounded text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-500"
         >
           Bugün
         </button>
         <button
           onClick={() => onNavigate('NEXT')}
-          className="px-3 py-1 bg-white dark:bg-gray-600 border border-gray-300 dark:border-gray-500 rounded text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-500"
+          className="px-2 py-1 bg-white dark:bg-gray-600 border border-gray-300 dark:border-gray-500 rounded text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-500"
         >
           Sonraki ›
         </button>
       </div>
       
-      <span className="text-lg font-semibold text-gray-900 dark:text-white capitalize">
+      <span className="text-md font-semibold text-gray-900 dark:text-white capitalize">
         {label.toLowerCase()}
       </span>
       
-      <div className="w-24"></div> {/* Boşluk için */}
+      <div className="w-20"></div>
     </div>
   );
 };

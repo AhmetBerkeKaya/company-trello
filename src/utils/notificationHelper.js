@@ -216,6 +216,38 @@ export const markNotificationAsRead = async (notificationId) => {
   }
 };
 
+export const notifyMeetingRequest = async (meetingRequest, recipients, requestedBy) => {
+  try {
+    const notifications = recipients.map(userId => ({
+      userId: userId,
+      type: 'meeting_request',
+      title: 'Yeni Toplantı İsteği',
+      message: `${requestedBy.name}, "${meetingRequest.title}" başlıklı bir toplantı talebinde bulundu`,
+      relatedId: meetingRequest.id,
+      relatedType: 'meetingRequest',
+      isRead: false,
+      createdAt: new Date(),
+      metadata: {
+        meetingTitle: meetingRequest.title,
+        projectId: meetingRequest.projectId,
+        requestedByName: requestedBy.name,
+        reason: meetingRequest.reason
+      }
+    }));
+
+    // Tüm bildirimleri ekle
+    const addPromises = notifications.map(notification => 
+      addDoc(collection(db, 'notifications'), notification)
+    );
+
+    await Promise.all(addPromises);
+    console.log('✅ Toplantı isteği bildirimleri gönderildi');
+
+  } catch (error) {
+    console.error('❌ Toplantı isteği bildirimi gönderme hatası:', error);
+  }
+};
+
 export const markAllNotificationsAsRead = async (userId) => {
   try {
     const notifications = await getUserNotifications(userId);
