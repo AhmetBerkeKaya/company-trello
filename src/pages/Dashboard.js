@@ -1,13 +1,15 @@
+// src/pages/Dashboard.js
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
-import { db } from '../firebase/config';
+// SİLİNDİ: Firebase importları (collection, query, where, getDocs, orderBy, limit)
+// SİLİNDİ: import { db } from '../firebase/config';
+import api from '../api/axios'; // YENİ: Kendi axios istemcimizi import ediyoruz
 import LoadingSpinner from '../components/UI/LoadingSpinner';
 import { Link, useNavigate } from 'react-router-dom';
 
 const Dashboard = () => {
-  const { userData, currentUser } = useAuth();
-  const navigate = useNavigate(); // ← BU SATIR ÇOK ÖNEMLİ
+  const { userData } = useAuth(); // Artık currentUser'a gerek yok, userData her şeyi içeriyor
+  const navigate = useNavigate();
   const [stats, setStats] = useState({
     totalProjects: 0,
     activeProjects: 0,
@@ -20,34 +22,46 @@ const Dashboard = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // userData (giriş yapmış kullanıcı bilgisi) gelince verileri çek
     if (userData) {
       fetchDashboardData();
+    } else {
+      // Eğer bir şekilde userData yoksa (teorik olarak olmamalı)
+      setLoading(false);
     }
-  }, [userData]);
+  }, [userData]); // Sadece userData'ya bağlı
 
   const fetchDashboardData = async () => {
     try {
       setLoading(true);
-      console.log('🔍 Dashboard verileri yükleniyor...');
+      console.log('🔍 Dashboard verileri YENİ API\'den yükleniyor...');
 
-      const [projectsData, meetingsData, tasksData] = await Promise.all([
+      // YENİ: Tüm API isteklerini Promise.all ile aynı anda yapıyoruz
+      const [projectsResponse, meetingsResponse, tasksResponse] = await Promise.all([
         fetchProjects(),
         fetchUpcomingMeetings(),
         fetchMyTasks()
       ]);
 
+      // Not: Artık .data dememize gerek yok, direkt diziyi döndüreceğiz
+      const projectsData = projectsResponse;
+      const meetingsData = meetingsResponse;
+      const tasksData = tasksResponse;
+      
       console.log('📊 Veriler alındı:', {
         projects: projectsData.length,
         meetings: meetingsData.length,
         tasks: tasksData.length
       });
 
+      // Statü isimlerini PostgreSQL ENUM'larımıza göre güncelledik
       const pendingTasksCount = Array.isArray(tasksData)
         ? tasksData.filter(t => t.status !== 'done' && t.status !== 'completed').length
         : 0;
 
       setStats({
         totalProjects: projectsData.length,
+        // 'active' ENUM tipimizle uyumlu
         activeProjects: projectsData.filter(p => p.status === 'active').length,
         upcomingMeetings: meetingsData.length,
         pendingTasks: pendingTasksCount
@@ -59,106 +73,61 @@ const Dashboard = () => {
 
     } catch (error) {
       console.error('❌ Dashboard veri getirme hatası:', error);
+      // Token süresi dolmuş veya geçersizse login'e at
+      if (error.response && (error.response.status === 401 || error.response.status === 403)) {
+        console.log('Yetki hatası, login sayfasına yönlendiriliyor.');
+        // TODO: Belki useAuth() üzerinden bir logout() çağrısı yapmak daha temiz olabilir
+        navigate('/login');
+      }
       setMyTasks([]);
     } finally {
       setLoading(false);
     }
   };
 
+  // YENİ: fetchProjects
   const fetchProjects = async () => {
     try {
-      const projectsQuery = query(
-        collection(db, 'projects'),
-        where('members', 'array-contains', userData.id),
-        orderBy('createdAt', 'desc')
-      );
-
-      const projectsSnapshot = await getDocs(projectsQuery);
-      const projects = projectsSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-
-      console.log('📁 Projeler:', projects);
-      return projects;
-
+      // Firebase YERİNE: Kendi API'mize (GET /api/projects) istek atıyoruz
+      // Bu istek 'authMiddleware'den geçecek ve 'Authorization' header'ını kullanacak
+      const response = await api.get('/projects');
+      console.log('📁 Projeler:', response.data);
+      return response.data; // API'den gelen proje dizisi
     } catch (error) {
       console.error('❌ Projeleri getirme hatası:', error);
-      return [];
+      throw error; // Hatanın fetchDashboardData tarafından yakalanmasını sağla
     }
   };
 
+  // YENİ: fetchUpcomingMeetings
   const fetchUpcomingMeetings = async () => {
     try {
-      const now = new Date();
-
-      const meetingsQuery = query(
-        collection(db, 'meetings'),
-        where('participants', 'array-contains', userData.id)
-      );
-
-      const meetingsSnapshot = await getDocs(meetingsQuery);
-      const allMeetings = meetingsSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-
-      const upcoming = allMeetings
-        .filter(meeting => {
-          const meetingTime = meeting.startTime?.toDate?.();
-          return meetingTime && meetingTime > now;
-        })
-        .sort((a, b) => {
-          const dateA = a.startTime?.toDate?.() || new Date(0);
-          const dateB = b.startTime?.toDate?.() || new Date(0);
-          return dateA - dateB;
-        });
-
-      return upcoming;
-
+      // Firebase YERİNE: Kendi API'mize (GET /api/meetings/upcoming) istek atıyoruz
+      const response = await api.get('/meetings/upcoming');
+      console.log('📅 Toplantılar:', response.data);
+      // API'den gelen veri zaten filtrelenmiş ve sıralanmış
+      // .filter ve .sort kısımlarına gerek kalmadı
+      return response.data;
     } catch (error) {
       console.error('❌ Toplantıları getirme hatası:', error);
-      return [];
+      throw error;
     }
   };
 
+  // YENİ: fetchMyTasks
   const fetchMyTasks = async () => {
     try {
-      if (!userData || !userData.id) {
-        console.warn('Kullanıcı verisi yok, görevler getirilemiyor');
-        return [];
-      }
-
-      // Önce normal sorguyu dene
-      try {
-        const tasksQuery = query(
-          collection(db, 'tasks'),
-          where('assignee', '==', userData.id)
-        );
-
-        const tasksSnapshot = await getDocs(tasksQuery);
-        console.log('📋 Normal sorgu sonucu:', tasksSnapshot.docs.length, 'görev');
-
-        const tasks = tasksSnapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        }));
-
-        return tasks;
-
-      } catch (queryError) {
-        console.warn('❌ Normal sorgu başarısız, debug moda geçiliyor:', queryError);
-        // Normal sorgu başarısız olursa debug moduna geç
-        return await fetchAllTasksForDebug();
-      }
-
+      // Firebase YERİNE: Kendi API'mize (GET /api/tasks/my) istek atıyoruz
+      const response = await api.get('/tasks/my');
+      console.log('📋 Görevler:', response.data);
+      return response.data;
     } catch (error) {
       console.error('❌ Görevleri getirme hatası:', error);
-      return [];
+      throw error;
     }
   };
-
-  // BEKLEYEN GÖREV BUTONU İÇİN FONKSİYON
+  
+  // BEKLEYEN GÖREV BUTONU İÇİN FONKSİYON (Aynen kaldı, projectId bekliyor)
   const handlePendingTasksClick = () => {
     try {
       if (!myTasks || !Array.isArray(myTasks)) {
@@ -166,15 +135,14 @@ const Dashboard = () => {
         navigate('/projects');
         return;
       }
-
       const pendingTasks = myTasks.filter(task =>
         task && task.status !== 'done' && task.status !== 'completed'
       );
-
       if (pendingTasks.length > 0) {
         const firstTask = pendingTasks[0];
-        if (firstTask && firstTask.projectId) {
-          navigate(`/projects/${firstTask.projectId}`);
+        // Veritabanı sütun adımız 'project_id' (PostgreSQL standardı)
+        if (firstTask && firstTask.project_id) {
+          navigate(`/projects/${firstTask.project_id}`);
         } else {
           navigate('/projects');
         }
@@ -187,15 +155,29 @@ const Dashboard = () => {
     }
   };
 
-  // TASK CARD CLICK HANDLER
+  // TASK CARD CLICK HANDLER (Aynen kaldı, projectId bekliyor)
   const handleTaskClick = (task) => {
-    if (task.projectId) {
-      navigate(`/projects/${task.projectId}`);
+    // Veritabanı sütun adımız 'project_id'
+    if (task.project_id) {
+      navigate(`/projects/${task.project_id}`);
     } else {
       navigate('/projects');
     }
   };
 
+  // --- RENDER KISMI (HTML/JSX) ---
+  // Render kısmında neredeyse HİÇBİR DEĞİŞİKLİK YOK.
+  // Sadece 'MeetingCard' ve 'TaskCard' component'lerindeki
+  // veri alanlarını PostgreSQL'e uyarlamamız gerekti.
+
+  if (loading) {
+    // Yükleniyor ekranını tam sayfa kaplayacak şekilde gösterelim
+    return (
+      <div className="flex items-center justify-center h-[calc(100vh-200px)]">
+        <LoadingSpinner size="large" />
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
@@ -214,7 +196,7 @@ const Dashboard = () => {
             })}
           </p>
         </div>
-
+        {/* 'role' alanı artık userData'da var */}
         {userData?.role !== 'user' && (
           <Link
             to="/projects"
@@ -226,7 +208,7 @@ const Dashboard = () => {
         )}
       </div>
 
-      {/* İstatistik Kartları */}
+      {/* İstatistik Kartları (Aynen kaldı) */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
         <StatCard
           icon="📁"
@@ -267,7 +249,8 @@ const Dashboard = () => {
           emptyMessage="Size atanmış görev bulunmuyor."
           items={myTasks}
           renderItem={(task) => (
-            <TaskCard key={task.id} task={task} onTaskClick={handleTaskClick} />
+            // YENİ: 'task.id' -> 'task.task_id' (Veritabanı sütun adımız)
+            <TaskCard key={task.task_id} task={task} onTaskClick={handleTaskClick} />
           )}
           viewAllLink="/projects"
         />
@@ -278,7 +261,8 @@ const Dashboard = () => {
           emptyMessage="Yaklaşan toplantınız yok."
           items={upcomingMeetings}
           renderItem={(meeting) => (
-            <MeetingCard key={meeting.id} meeting={meeting} />
+            // YENİ: 'meeting.id' -> 'meeting.meeting_id' (Veritabanı sütun adımız)
+            <MeetingCard key={meeting.meeting_id} meeting={meeting} />
           )}
           viewAllLink="/meetings"
         />
@@ -287,7 +271,9 @@ const Dashboard = () => {
   );
 };
 
-// İstatistik Kartı Component'i
+// --- ALT COMPONENTLER (DEĞİŞTİ) ---
+
+// İstatistik Kartı Component'i (Aynen kaldı)
 const StatCard = ({ icon, label, value, color, link, state, onCardClick }) => {
   const colorClasses = {
     blue: 'bg-blue-100 text-blue-600 dark:bg-blue-900/20 dark:text-blue-300',
@@ -295,14 +281,12 @@ const StatCard = ({ icon, label, value, color, link, state, onCardClick }) => {
     purple: 'bg-purple-100 text-purple-600 dark:bg-purple-900/20 dark:text-purple-300',
     orange: 'bg-orange-100 text-orange-600 dark:bg-orange-900/20 dark:text-orange-300'
   };
-
   const handleClick = (e) => {
     if (onCardClick) {
       e.preventDefault();
       onCardClick();
     }
   };
-
   const content = (
     <div
       className={`bg-white dark:bg-gray-800 rounded-lg shadow dark:shadow-gray-900/50 p-6 hover:shadow-md dark:hover:shadow-gray-900/70 transition-all ${(onCardClick || link) ? 'cursor-pointer hover:scale-105' : ''
@@ -322,7 +306,6 @@ const StatCard = ({ icon, label, value, color, link, state, onCardClick }) => {
       </div>
     </div>
   );
-
   if (link && !onCardClick) {
     return (
       <Link to={link} state={state} className="block">
@@ -330,11 +313,10 @@ const StatCard = ({ icon, label, value, color, link, state, onCardClick }) => {
       </Link>
     );
   }
-
   return content;
 };
 
-// Dashboard Bölüm Component'i
+// Dashboard Bölüm Component'i (Aynen kaldı)
 const DashboardSection = ({ title, emptyMessage, items, renderItem, viewAllLink }) => (
   <div className="bg-white dark:bg-gray-800 rounded-lg shadow dark:shadow-gray-900/50">
     <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
@@ -362,59 +344,97 @@ const DashboardSection = ({ title, emptyMessage, items, renderItem, viewAllLink 
   </div>
 );
 
-// Toplantı Kartı Component'i
-const MeetingCard = ({ meeting }) => (
-  <div className="block p-4 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-    <div className="flex justify-between items-start">
-      <div className="flex-1">
-        <h3 className="font-medium text-gray-900 dark:text-white">{meeting.title}</h3>
-        <p className="text-sm text-gray-600 dark:text-gray-400 mt-1 line-clamp-2">
-          {meeting.description}
-        </p>
-        <div className="flex items-center mt-2 text-xs text-gray-500 dark:text-gray-500">
-          <span>🕒 {meeting.startTime && new Date(meeting.startTime.toDate()).toLocaleString('tr-TR')}</span>
-          {meeting.location && (
-            <span className="ml-4">📍 {meeting.location}</span>
-          )}
-        </div>
-      </div>
-      <span className="px-2 py-1 text-xs bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-300 rounded-full">
-        Planlandı
-      </span>
-    </div>
-  </div>
-);
+// Toplantı Kartı Component'i (DEĞİŞTİ)
+const MeetingCard = ({ meeting }) => {
+  // YENİ: Veri artık Firebase 'Timestamp' objesi değil,
+  // PostgreSQL'den gelen standart bir 'ISO string'.
+  // Bunu direkt 'new Date()' ile kullanabiliriz.
+  const getMeetingTime = () => {
+    if (!meeting.start_time) return 'Tarih yok';
+    try {
+      // 'meeting.startTime.toDate()' YERİNE:
+      return new Date(meeting.start_time).toLocaleString('tr-TR');
+    } catch (e) {
+      console.error('Tarih format hatası', e);
+      return 'Geçersiz tarih';
+    }
+  };
 
-// Görev Kartı Component'i
-const TaskCard = ({ task, onTaskClick }) => (
-  <div
-    className="block p-4 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors cursor-pointer"
-    onClick={() => onTaskClick(task)}
-  >
-    <div className="flex justify-between items-start">
-      <div className="flex-1">
-        <h3 className="font-medium text-gray-900 dark:text-white">{task.title}</h3>
-        <p className="text-sm text-gray-600 dark:text-gray-400 mt-1 line-clamp-2">
-          {task.description}
-        </p>
-        <div className="flex items-center mt-2 text-xs text-gray-500 dark:text-gray-500">
-          <span>Durum: </span>
-          <span className={`ml-1 px-2 py-1 rounded-full ${task.status === 'todo' ? 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300' :
-            task.status === 'inProgress' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-300' :
-              'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-300'
-            }`}>
-            {task.status === 'todo' ? 'Yapılacak' :
-              task.status === 'inProgress' ? 'Devam Ediyor' : 'Tamamlandı'}
-          </span>
-          {task.projectId && (
-            <span className="ml-4 text-blue-600 dark:text-blue-400">
-              Projeye Git →
+  return (
+    <div className="block p-4 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+      <div className="flex justify-between items-start">
+        <div className="flex-1">
+          <h3 className="font-medium text-gray-900 dark:text-white">{meeting.title}</h3>
+          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1 line-clamp-2">
+            {meeting.description}
+          </p>
+          <div className="flex items-center mt-2 text-xs text-gray-500 dark:text-gray-500">
+            {/* YENİ: 'meeting.startTime' -> 'meeting.start_time' */}
+            <span>🕒 {getMeetingTime()}</span>
+            {meeting.location && (
+              <span className="ml-4">📍 {meeting.location}</span>
+            )}
+          </div>
+        </div>
+        <span className="px-2 py-1 text-xs bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-300 rounded-full">
+          Planlandı
+        </span>
+      </div>
+    </div>
+  );
+};
+
+// Görev Kartı Component'i (DEĞİŞTİ)
+const TaskCard = ({ task, onTaskClick }) => {
+  // YENİ: Statü isimleri artık bizim ENUM tipimize ('inProgress') uyumlu olmalı
+  const getStatusLabel = (status) => {
+    switch (status) {
+      case 'todo': return 'Yapılacak';
+      case 'inProgress': return 'Devam Ediyor';
+      case 'done':
+      case 'completed': return 'Tamamlandı';
+      default: return status;
+    }
+  };
+
+  const getStatusColor = (status) => {
+    switch (status) {
+      case 'todo': return 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300';
+      case 'inProgress': return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-300';
+      case 'done':
+      case 'completed': return 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-300';
+      default: return 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300';
+    }
+  };
+  
+  return (
+    <div
+      className="block p-4 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors cursor-pointer"
+      // YENİ: 'task.project_id' (Veritabanı sütun adı)
+      onClick={() => onTaskClick(task)}
+    >
+      <div className="flex justify-between items-start">
+        <div className="flex-1">
+          <h3 className="font-medium text-gray-900 dark:text-white">{task.title}</h3>
+          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1 line-clamp-2">
+            {task.description}
+          </p>
+          <div className="flex items-center mt-2 text-xs text-gray-500 dark:text-gray-500">
+            <span>Durum: </span>
+            <span className={`ml-1 px-2 py-1 rounded-full ${getStatusColor(task.status)}`}>
+              {getStatusLabel(task.status)}
             </span>
-          )}
+            {/* YENİ: 'task.project_id' */}
+            {task.project_id && (
+              <span className="ml-4 text-blue-600 dark:text-blue-400">
+                Projeye Git →
+              </span>
+            )}
+          </div>
         </div>
       </div>
     </div>
-  </div>
-);
+  );
+};
 
 export default Dashboard;

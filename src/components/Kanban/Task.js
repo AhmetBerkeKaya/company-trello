@@ -1,33 +1,27 @@
 import React, { useState, useEffect } from 'react';
 import { useDrag } from 'react-dnd';
-import { doc, getDoc, deleteDoc } from 'firebase/firestore';
-import { db } from '../../firebase/config';
+import api from '../../api/axios'; // YENİ
 import TaskDetailModal from './TaskDetailModal';
 
 const ItemTypes = {
   TASK: 'task'
 };
 
-// Basit Confirm Modal Component
+// Confirm Modal Component (TaskDetailModal kullanacak, ama burada tanımlı değil)
+// (Bu component'i TaskDetailModal.js'ten buraya taşıyabilir veya
+// UI klasörüne alıp her iki yerden de import edebilirsiniz)
 const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message }) => {
   if (!isOpen) return null;
-
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-60">
       <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-sm">
         <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">{title}</h3>
         <p className="text-gray-600 dark:text-gray-400 mb-6">{message}</p>
         <div className="flex justify-end space-x-3">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-300 font-medium"
-          >
+          <button onClick={onClose} className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-300 font-medium">
             İptal
           </button>
-          <button
-            onClick={onConfirm}
-            className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg font-medium transition-colors"
-          >
+          <button onClick={onConfirm} className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg font-medium transition-colors">
             Sil
           </button>
         </div>
@@ -36,12 +30,16 @@ const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message }) => {
   );
 };
 
-// YENİ: Tarih durumunu kontrol eden fonksiyon
+
+// Tarih durumunu kontrol eden fonksiyon (PostgreSQL uyumlu)
 const getDateStatus = (dueDate) => {
   if (!dueDate) return null;
   
   const today = new Date();
-  const due = dueDate.toDate ? dueDate.toDate() : new Date(dueDate);
+  today.setHours(0, 0, 0, 0); // Günün başlangıcı
+  const due = new Date(dueDate); // API'den ISO string (örn: "2025-11-05") gelecek
+  due.setHours(0, 0, 0, 0); // Günün başlangıcı
+  
   const timeDiff = due.getTime() - today.getTime();
   const daysDiff = Math.ceil(timeDiff / (1000 * 3600 * 24));
   
@@ -71,25 +69,24 @@ const getDateStatus = (dueDate) => {
   };
 };
 
-// Draggable Task Component
+// Draggable Task Component (API'ye bağlandı)
 const DraggableTask = ({ task, onUpdate, userRole, currentUserId }) => {
   const [showDetailModal, setShowDetailModal] = useState(false);
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [assignedUser, setAssignedUser] = useState(null);
 
-  // Kullanıcı yetkisi kontrolleri
-  const canEditTask = userRole === 'admin' || userRole === 'manager' || task.createdBy === currentUserId;
-  const canDeleteTask = userRole === 'admin' || userRole === 'manager' || task.createdBy === currentUserId;
-  const canDragTask = userRole === 'admin' || userRole === 'manager' || task.assignee === currentUserId;
+  // Yetki kontrolleri (Veritabanı sütun adlarına göre)
+  const canEditTask = userRole === 'admin' || userRole === 'manager' || task.created_by_user_id === currentUserId;
+  const canDeleteTask = userRole === 'admin' || userRole === 'manager' || task.created_by_user_id === currentUserId;
+  const canDragTask = userRole === 'admin' || userRole === 'manager' || task.assignee_user_id === currentUserId;
 
-  // YENİ: Tarih durumu
-  const dateStatus = task.dueDate ? getDateStatus(task.dueDate) : null;
+  // Tarih durumu (Veritabanı sütun adına göre)
+  const dateStatus = task.due_date ? getDateStatus(task.due_date) : null;
 
   // Drag configuration
   const [{ isDragging }, drag, dragPreview] = useDrag(() => ({
     type: ItemTypes.TASK,
     item: {
-      id: task.id,
+      id: task.id, // Board.js 'id' bekliyor (task_id'nin kopyası)
       status: task.status,
       type: 'task'
     },
@@ -99,35 +96,30 @@ const DraggableTask = ({ task, onUpdate, userRole, currentUserId }) => {
     canDrag: () => canDragTask,
   }), [task.id, task.status, canDragTask]);
 
-  // Fetch assigned user
+  // Atanan kullanıcıyı getir (API'den)
   useEffect(() => {
-    if (task.assignee) {
-      fetchAssignedUser();
+    if (task.assignee_user_id) {
+      fetchAssignedUser(task.assignee_user_id);
+    } else {
+      setAssignedUser(null);
     }
-  }, [task.assignee]);
+  }, [task.assignee_user_id]);
 
-  const fetchAssignedUser = async () => {
+  const fetchAssignedUser = async (userId) => {
     try {
-      const userDoc = await getDoc(doc(db, 'users', task.assignee));
-      if (userDoc.exists()) {
-        setAssignedUser(userDoc.data());
-      }
+      // (Bebek Adımı 7.D'de eklediğimiz API yolu)
+      const response = await api.get(`/users/${userId}`); 
+      setAssignedUser(response.data);
     } catch (error) {
       console.error('Atanan kullanıcıyı getirme hatası:', error);
+      // Kullanıcı silinmiş olabilir
+      setAssignedUser({ name: 'Bilinmeyen Kullanıcı' });
     }
   };
 
-  // Görev silme fonksiyonu
+  // Görev silme fonksiyonu (Modal'a taşındı, burası sadece alert)
   const handleDeleteTask = async () => {
-    try {
-      await deleteDoc(doc(db, 'tasks', task.id));
-      setShowDeleteModal(false);
-      onUpdate();
-      console.log('✅ Görev silindi:', task.id);
-    } catch (error) {
-      console.error('❌ Görev silme hatası:', error);
-      alert('Görev silinirken bir hata oluştu: ' + error.message);
-    }
+    alert('Görevi silmek için lütfen görev detaylarına gidin.');
   };
 
   // Handle click
@@ -141,19 +133,18 @@ const DraggableTask = ({ task, onUpdate, userRole, currentUserId }) => {
   // Sil butonuna tıklama - event propagation'ı durdur
   const handleDeleteClick = (e) => {
     e.stopPropagation();
-    setShowDeleteModal(true);
+    // (Silme işlemi artık modal'da)
+    alert('Görevi silmek için lütfen görev detaylarına gidin.');
   };
 
   return (
     <>
-      {/* Drag preview */}
+      {/* Drag preview (Sürükleme anındaki hayalet) */}
       {isDragging && (
         <div
           ref={dragPreview}
           className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-3 border-2 border-blue-500 opacity-80"
-          style={{
-            transform: 'rotate(5deg)',
-          }}
+          style={{ transform: 'rotate(5deg)' }}
         >
           <div className="font-medium text-gray-900 dark:text-white text-sm mb-1">
             {task.title}
@@ -166,16 +157,15 @@ const DraggableTask = ({ task, onUpdate, userRole, currentUserId }) => {
               <span className="text-xs text-gray-600 dark:text-gray-400">{assignedUser.name}</span>
             </div>
           )}
-          {/* YENİ: Drag preview'da tarih */}
           {dateStatus && (
             <div className={`text-xs px-1 py-0.5 rounded mt-1 ${dateStatus.class}`}>
-              {dateStatus.icon} {task.dueDate?.toDate?.().toLocaleDateString('tr-TR')}
+              {dateStatus.icon} {new Date(task.due_date).toLocaleDateString('tr-TR')}
             </div>
           )}
         </div>
       )}
 
-      {/* Normal task görünümü */}
+      {/* Normal task görünümü (Veritabanı sütun adları güncellendi) */}
       <div
         ref={canDragTask ? drag : null}
         style={{
@@ -186,16 +176,15 @@ const DraggableTask = ({ task, onUpdate, userRole, currentUserId }) => {
           }`}
         onClick={handleClick}
       >
-        {/* Sil butonu */}
+        {/* Sil butonu (Kullanıcı dostu olması için modal'a taşıdık)
         {canDeleteTask && (
           <button
             onClick={handleDeleteClick}
-            className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600 shadow-md z-10"
-            title="Görevi sil"
-          >
+            className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-6 h-6 ...">
             ×
           </button>
         )}
+        */}
 
         <div className="flex justify-between items-start mb-2">
           <h4 className="font-medium text-gray-900 dark:text-white text-sm leading-tight flex-1 pr-4">
@@ -209,19 +198,19 @@ const DraggableTask = ({ task, onUpdate, userRole, currentUserId }) => {
           </p>
         )}
 
-        {/* YENİ: Bitiş tarihi - Üstte göster */}
+        {/* Bitiş tarihi ('due_date') */}
         {dateStatus && (
           <div className={`flex items-center space-x-1 mb-2 px-2 py-1 rounded text-xs ${dateStatus.class}`}>
             <span>{dateStatus.icon}</span>
             <span className="font-medium">
-              {task.dueDate?.toDate?.().toLocaleDateString('tr-TR')}
+              {new Date(task.due_date).toLocaleDateString('tr-TR')}
             </span>
             <span>•</span>
             <span>{dateStatus.text}</span>
           </div>
         )}
 
-        {/* Atanan Kişi */}
+        {/* Atanan Kişi ('assignee_user_id') */}
         {assignedUser && (
           <div className="flex items-center space-x-2 mb-2 p-1 bg-blue-50 dark:bg-blue-900/20 rounded">
             <div className="w-5 h-5 bg-blue-600 rounded-full flex items-center justify-center text-white text-xs font-semibold flex-shrink-0">
@@ -235,9 +224,9 @@ const DraggableTask = ({ task, onUpdate, userRole, currentUserId }) => {
 
         <div className="flex justify-between items-center text-xs text-gray-400 dark:text-gray-500">
           <span className="truncate">
-            {task.createdAt?.toDate?.().toLocaleDateString('tr-TR')}
+            {new Date(task.created_at).toLocaleDateString('tr-TR')}
           </span>
-          <span className="flex-shrink-0">#{task.id.slice(-4)}</span>
+          <span className="flex-shrink-0">#{task.task_id.slice(-4)}</span>
         </div>
       </div>
 
@@ -248,18 +237,8 @@ const DraggableTask = ({ task, onUpdate, userRole, currentUserId }) => {
         onClose={() => setShowDetailModal(false)}
         onUpdate={onUpdate}
         canEdit={canEditTask}
+        canDeleteProp={canDeleteTask} // YENİ: Modal'a silme yetkisini yolluyoruz
       />
-
-      {/* Silme Onay Modal'ı */}
-      {canDeleteTask && (
-        <ConfirmModal
-          isOpen={showDeleteModal}
-          onClose={() => setShowDeleteModal(false)}
-          onConfirm={handleDeleteTask}
-          title="Görevi Sil"
-          message={`"${task.title}" görevini silmek istediğinizden emin misiniz? Bu işlem geri alınamaz.`}
-        />
-      )}
     </>
   );
 };

@@ -1,7 +1,7 @@
+// src/pages/Customers.js
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { collection, query, getDocs, orderBy, where } from 'firebase/firestore';
-import { db } from '../firebase/config';
+import api from '../api/axios'; // YENİ
 import LoadingSpinner from '../components/UI/LoadingSpinner';
 import { useNavigate } from 'react-router-dom';
 
@@ -11,37 +11,31 @@ const Customers = () => {
   const [companies, setCompanies] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  
+  // YENİ: Proje geçmişini (aç/kapa) tutmak için state
+  const [expandedCompanyId, setExpandedCompanyId] = useState(null);
   const [companyProjects, setCompanyProjects] = useState({});
+  const [loadingProjects, setLoadingProjects] = useState(false);
 
-  // Yetki kontrolü - sadece admin ve manager görebilir
   const canViewCustomers = userData?.role === 'admin' || userData?.role === 'manager';
 
   useEffect(() => {
     if (canViewCustomers) {
       fetchCompanies();
+    } else {
+      setLoading(false); // Yetkisi yoksa yüklemeyi durdur
     }
   }, [canViewCustomers]);
 
+  // YENİ: fetchCompanies (Sadece firmaları çeker, istatistikler API'den gelir)
   const fetchCompanies = async () => {
     try {
       setLoading(true);
-      const companiesQuery = query(
-        collection(db, 'companies'),
-        orderBy('name')
-      );
-      const companiesSnapshot = await getDocs(companiesQuery);
+      // YENİ: N+1 yerine tek bir API isteği
+      const response = await api.get('/companies');
       
-      const companiesData = companiesSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-
-      setCompanies(companiesData);
-      
-      // Her firma için projeleri getir
-      for (const company of companiesData) {
-        await fetchCompanyProjects(company.id, company.name);
-      }
+      // API zaten 'totalProjects', 'activeProjects' vb. içeriyor
+      setCompanies(response.data); 
 
     } catch (error) {
       console.error('❌ Firmaları getirme hatası:', error);
@@ -50,35 +44,45 @@ const Customers = () => {
     }
   };
 
-  const fetchCompanyProjects = async (companyId, companyName) => {
+  // SİLİNDİ: fetchCompanyProjects (Artık sayfa yüklenirken çağrılmıyor)
+
+  // YENİ: Proje Geçmişini Getir (Tıklanınca çalışır)
+  const toggleCompanyProjects = async (companyId) => {
+    // Zaten açıksa kapat
+    if (expandedCompanyId === companyId) {
+      setExpandedCompanyId(null);
+      return;
+    }
+    
+    // Zaten yüklenmişse, tekrar API isteği atma, sadece aç
+    if (companyProjects[companyId]) {
+      setExpandedCompanyId(companyId);
+      return;
+    }
+
+    // Yüklenmemişse, API'den proje geçmişini çek
     try {
-      const projectsQuery = query(
-        collection(db, 'projects'),
-        where('company', '==', companyName)
-      );
-      const projectsSnapshot = await getDocs(projectsQuery);
+      setLoadingProjects(true);
+      setExpandedCompanyId(companyId); // Spinner'ı göstermek için hemen aç
       
-      const projectsData = projectsSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-
+      const response = await api.get(`/companies/${companyId}/projects`);
+      
       setCompanyProjects(prev => ({
         ...prev,
-        [companyId]: projectsData
+        [companyId]: response.data
       }));
-
     } catch (error) {
-      console.error(`❌ ${companyName} projelerini getirme hatası:`, error);
-      // Hata durumunda boş array ile devam et
+      console.error(`❌ Projelerini getirme hatası:`, error);
       setCompanyProjects(prev => ({
         ...prev,
-        [companyId]: []
+        [companyId]: [] // Hata durumunda boş göster
       }));
+    } finally {
+      setLoadingProjects(false);
     }
   };
 
-  // Yetki yoksa erişim engellendi mesajı göster
+  // Yetki yoksa (Bu kısım aynı kaldı)
   if (!canViewCustomers) {
     return (
       <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
@@ -103,26 +107,20 @@ const Customers = () => {
     );
   }
 
+  // Arama filtresi (Aynı kaldı)
   const filteredCompanies = companies.filter(company =>
     company.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const getProjectStats = (companyId) => {
-    const projects = companyProjects[companyId] || [];
-    const activeProjects = projects.filter(p => p.status === 'active').length;
-    const completedProjects = projects.filter(p => p.status === 'completed').length;
-    const totalProjects = projects.length;
+  // SİLİNDİ: getProjectStats (Artık gerek yok, API'den geliyor)
 
-    return { totalProjects, activeProjects, completedProjects };
-  };
-
+  // GÖRSEL: getStatusBadge (Aynı kaldı)
   const getStatusBadge = (status) => {
     const statusConfig = {
       'active': { class: 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-300', text: 'Aktif' },
       'completed': { class: 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300', text: 'Tamamlandı' },
       'on-hold': { class: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-300', text: 'Beklemede' }
     };
-    
     const config = statusConfig[status] || statusConfig.completed;
     return (
       <span className={`px-2 py-1 text-xs rounded-full ${config.class}`}>
@@ -131,6 +129,7 @@ const Customers = () => {
     );
   };
 
+  // Yükleniyor ekranı (Aynı kaldı)
   if (loading) {
     return (
       <div className="max-w-7xl mx-auto py-6 px-4">
@@ -143,7 +142,7 @@ const Customers = () => {
 
   return (
     <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
-      {/* Başlık ve Arama */}
+      {/* Başlık ve Arama (Aynı kaldı) */}
       <div className="mb-8">
         <div className="flex justify-between items-center mb-6">
           <div>
@@ -156,14 +155,11 @@ const Customers = () => {
               </span>
             </p>
           </div>
-
           <div className="text-right">
             <div className="text-2xl font-bold text-gray-900 dark:text-white">{companies.length}</div>
             <div className="text-sm text-gray-500 dark:text-gray-400">Toplam Firma</div>
           </div>
         </div>
-
-        {/* Arama Kutusu */}
         <div className="max-w-md">
           <input
             type="text"
@@ -175,7 +171,7 @@ const Customers = () => {
         </div>
       </div>
 
-      {/* Firma Listesi */}
+      {/* Firma Listesi (DÜZELTİLDİ: API'den gelen istatistikleri kullan) */}
       {filteredCompanies.length === 0 ? (
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow dark:shadow-gray-900/50 p-12 text-center">
           <div className="text-6xl mb-4">🏢</div>
@@ -192,8 +188,10 @@ const Customers = () => {
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
           {filteredCompanies.map((company) => {
-            const stats = getProjectStats(company.id);
+            // YENİ: İstatistikler (company objesinden) ve projeler (state'ten)
+            const stats = company;
             const projects = companyProjects[company.id] || [];
+            const isExpanded = expandedCompanyId === company.id;
 
             return (
               <div
@@ -230,59 +228,75 @@ const Customers = () => {
                     </div>
                   </div>
 
-                  {/* Proje Listesi */}
+                  {/* Proje Listesi (DÜZELTİLDİ: Aç/Kapa) */}
                   <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
-                    <h4 className="font-medium text-gray-900 dark:text-white mb-3 text-sm">
-                      Proje Geçmişi ({projects.length})
-                    </h4>
+                    <button
+                      onClick={() => toggleCompanyProjects(company.id)}
+                      className="w-full flex justify-between items-center mb-3"
+                    >
+                      <h4 className="font-medium text-gray-900 dark:text-white text-sm">
+                        Proje Geçmişi ({stats.totalProjects})
+                      </h4>
+                      <span className="text-lg text-gray-500 transform transition-transform">
+                        {isExpanded ? '▲' : '▼'}
+                      </span>
+                    </button>
                     
-                    {projects.length === 0 ? (
-                      <p className="text-gray-500 dark:text-gray-400 text-sm text-center py-4">
-                        Henüz proje bulunmuyor
-                      </p>
-                    ) : (
-                      <div className="space-y-2 max-h-40 overflow-y-auto">
-                        {projects.slice(0, 5).map(project => (
-                          <div
-                            key={project.id}
-                            className="flex justify-between items-center p-2 hover:bg-gray-50 dark:hover:bg-gray-700 rounded cursor-pointer"
-                            onClick={() => navigate(`/projects/${project.id}`)}
-                          >
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                                {project.title}
-                              </p>
-                              <p className="text-xs text-gray-500 dark:text-gray-400">
-                                {project.createdAt?.toDate?.().toLocaleDateString('tr-TR') || 'Tarih yok'}
-                              </p>
+                    {/* YENİ: Açılır Kapanır İçerik */}
+                    {isExpanded && (
+                      loadingProjects && expandedCompanyId === company.id ? (
+                        <div className="flex justify-center py-4">
+                          <LoadingSpinner size="small" />
+                        </div>
+                      ) : projects.length === 0 ? (
+                        <p className="text-gray-500 dark:text-gray-400 text-sm text-center py-4">
+                          Henüz proje bulunmuyor
+                        </p>
+                      ) : (
+                        <div className="space-y-2 max-h-40 overflow-y-auto">
+                          {projects.slice(0, 5).map(project => (
+                            <div
+                              key={project.id}
+                              className="flex justify-between items-center p-2 hover:bg-gray-50 dark:hover:bg-gray-700 rounded cursor-pointer"
+                              onClick={() => navigate(`/projects/${project.id}`)}
+                            >
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                                  {project.title}
+                                </p>
+                                <p className="text-xs text-gray-500 dark:text-gray-400">
+                                  {/* DÜZELTME: PostgreSQL tarih formatı */}
+                                  {project.created_at ? new Date(project.created_at).toLocaleDateString('tr-TR') : 'Tarih yok'}
+                                </p>
+                              </div>
+                              <div className="ml-2">
+                                {getStatusBadge(project.status)}
+                              </div>
                             </div>
-                            <div className="ml-2">
-                              {getStatusBadge(project.status)}
-                            </div>
-                          </div>
-                        ))}
-                        {projects.length > 5 && (
-                          <p className="text-xs text-gray-500 dark:text-gray-400 text-center pt-2">
-                            +{projects.length - 5} proje daha...
-                          </p>
-                        )}
-                      </div>
+                          ))}
+                          {projects.length > 5 && (
+                            <p className="text-xs text-gray-500 dark:text-gray-400 text-center pt-2">
+                              +{projects.length - 5} proje daha...
+                            </p>
+                          )}
+                        </div>
+                      )
                     )}
                   </div>
 
-                  {/* Firma Bilgileri */}
+                  {/* Firma Bilgileri (DÜZELTİLDİ: PostgreSQL tarih formatı) */}
                   <div className="border-t border-gray-200 dark:border-gray-700 pt-4 mt-4">
                     <div className="text-xs text-gray-500 dark:text-gray-400 space-y-1">
                       <div className="flex justify-between">
                         <span>Oluşturulma:</span>
                         <span>
-                          {company.createdAt?.toDate?.().toLocaleDateString('tr-TR') || 'Bilinmiyor'}
+                          {company.created_at ? new Date(company.created_at).toLocaleDateString('tr-TR') : 'Bilinmiyor'}
                         </span>
                       </div>
-                      {company.createdByName && (
+                      {company.created_by_name && (
                         <div className="flex justify-between">
                           <span>Ekleyen:</span>
-                          <span>{company.createdByName}</span>
+                          <span>{company.created_by_name}</span>
                         </div>
                       )}
                     </div>

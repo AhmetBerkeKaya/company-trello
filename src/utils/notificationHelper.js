@@ -1,273 +1,75 @@
-import { collection, addDoc, serverTimestamp, query, where, getDocs, orderBy, updateDoc, doc, getDoc } from 'firebase/firestore';
-import { db } from '../firebase/config';
+// src/utils/notificationHelper.js
+import api from '../api/axios'; // YENİ
 
-// Basit email gönderme fonksiyonu
-const sendEmailNotification = async (notification, userData) => {
-  try {
-    console.log('📧 EMAIL GÖNDERİLECEK:', {
-      to: userData.email,
-      subject: getEmailSubject(notification),
-      userName: userData.name,
-      type: notification.type
-    });
+// --- OKUMA FONKSİYONLARI (API'YE BAĞLANDI) ---
 
-    // Burada gerçek email gönderme kodu olacak
-    // Şimdilik başarılı dönüyoruz
-    return true;
-  } catch (error) {
-    console.error('Email gönderme hatası:', error);
-    return false;
-  }
-};
-
-// Bildirim oluşturma fonksiyonu - DÜZELTİLDİ
-export const createNotification = async (notificationData) => {
-  try {
-    const notification = {
-      ...notificationData,
-      read: false,
-      createdAt: serverTimestamp(),
-      emailSent: false
-    };
-
-    // Bildirimi Firestore'a kaydet ve ID'yi al
-    const docRef = await addDoc(collection(db, 'notifications'), notification);
-    const notificationId = docRef.id;
-    
-    console.log('Bildirim oluşturuldu:', notification.type, 'ID:', notificationId);
-
-    // Bildirime ID'yi ekle ve email gönder
-    const notificationWithId = {
-      ...notification,
-      id: notificationId
-    };
-
-    // Kullanıcının email tercihlerini kontrol et ve email gönder
-    await checkAndSendEmailNotification(notificationWithId);
-
-    return notificationId;
-  } catch (error) {
-    console.error('Bildirim oluşturma hatası:', error);
-  }
-};
-
-// Kullanıcının email tercihlerini kontrol et ve email gönder - DÜZELTİLDİ
-const checkAndSendEmailNotification = async (notification) => {
-  try {
-    // Kullanıcı bilgilerini getir
-    const userDoc = await getDoc(doc(db, 'users', notification.userId));
-    if (!userDoc.exists()) {
-      console.log('Kullanıcı bulunamadı:', notification.userId);
-      return;
-    }
-
-    const userData = userDoc.data();
-    const userEmail = userData.email;
-    
-    if (!userEmail) {
-      console.log('Kullanıcı emaili yok:', notification.userId);
-      return;
-    }
-
-    // Kullanıcının notificationSettings'ini kontrol et
-    const notificationSettings = userData.notificationSettings || {
-      email: true,
-      tasks: true,
-      meetings: true
-    };
-
-    // Email gönderme koşullarını kontrol et
-    const shouldSendEmail = 
-      notificationSettings.email && // Genel email ayarı
-      (
-        (notification.type.includes('task') && notificationSettings.tasks) ||
-        (notification.type.includes('meeting') && notificationSettings.meetings)
-      );
-
-    if (shouldSendEmail) {
-      console.log('📧 Email gönderilecek:', userEmail, 'Bildirim tipi:', notification.type);
-      
-      // Email gönder
-      const emailSent = await sendEmailNotification(notification, userData);
-      
-      if (emailSent && notification.id) {
-        // Bildirimi email gönderildi olarak işaretle
-        await updateDoc(doc(db, 'notifications', notification.id), {
-          emailSent: true,
-          emailSentAt: serverTimestamp()
-        });
-        console.log('✅ Email gönderildi işaretlendi:', notification.id);
-      }
-    } else {
-      console.log('📧 Email gönderilmeyecek - Tercihler kapalı');
-    }
-
-  } catch (error) {
-    console.error('Email kontrol hatası:', error);
-  }
-};
-
-// Email konusunu oluştur
-const getEmailSubject = (notification) => {
-  switch (notification.type) {
-    case 'task_assigned':
-      return `Yeni Görev Atandı: ${notification.taskTitle}`;
-    case 'task_updated':
-      return `Görev Güncellendi: ${notification.taskTitle}`;
-    case 'meeting_created':
-      return `Yeni Toplantı: ${notification.meetingTitle}`;
-    default:
-      return 'Yeni Bildirim';
-  }
-};
-
-// Mevcut fonksiyonlar aynı kalacak...
-export const notifyTaskAssignment = async (task, assigneeId, sender) => {
-  await createNotification({
-    type: 'task_assigned',
-    userId: assigneeId,
-    taskId: task.id,
-    taskTitle: task.title,
-    projectId: task.projectId,
-    projectTitle: task.projectTitle || 'Proje',
-    senderId: sender.id,
-    senderName: sender.name,
-    description: task.description,
-    link: `/projects/${task.projectId}`
-  });
-};
-
-export const notifyTaskUpdate = async (task, updater) => {
-  if (task.assignee && task.assignee !== updater.id) {
-    await createNotification({
-      type: 'task_updated',
-      userId: task.assignee,
-      taskId: task.id,
-      taskTitle: task.title,
-      projectId: task.projectId,
-      projectTitle: task.projectTitle || 'Proje',
-      senderId: updater.id,
-      senderName: updater.name,
-      status: getStatusText(task.status),
-      link: `/projects/${task.projectId}`
-    });
-  }
-};
-
-export const notifyMeetingCreated = async (meeting, participants, creator) => {
-  try {
-    for (const participantId of participants) {
-      if (participantId !== creator.id) {
-        const meetingDate = meeting.startTime || meeting.date || new Date();
-        
-        await createNotification({
-          type: 'meeting_created',
-          userId: participantId,
-          meetingId: meeting.id,
-          meetingTitle: meeting.title,
-          meetingDate: meetingDate,
-          senderId: creator.id,
-          senderName: creator.name,
-          description: meeting.description,
-          link: '/meetings'
-        });
-      }
-    }
-  } catch (error) {
-    console.error('❌ Toplantı bildirimi hatası:', error);
-  }
-};
-
-// Diğer fonksiyonlar aynı...
 export const getUserNotifications = async (userId) => {
+  // 'userId' parametresine artık gerek yok, API (JWT'den)
+  // kim olduğumuzu biliyor.
   try {
-    const notificationsQuery = query(
-      collection(db, 'notifications'),
-      where('userId', '==', userId)
-    );
-
-    const snapshot = await getDocs(notificationsQuery);
-    const notifications = snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
+    const response = await api.get('/notifications');
+    
+    // Veritabanı (PostgreSQL) tarih formatını
+    // JavaScript 'Date' objesine çevirelim
+    const notifications = response.data.map(n => ({
+      ...n,
+      createdAt: n.created_at ? new Date(n.created_at) : new Date()
     }));
-
-    notifications.sort((a, b) => {
-      const dateA = a.createdAt?.toDate?.() || new Date(0);
-      const dateB = b.createdAt?.toDate?.() || new Date(0);
-      return dateB - dateA;
-    });
-
+    
+    // Sıralama (API zaten yapıyor ama garanti olsun)
+    notifications.sort((a, b) => b.createdAt - a.createdAt);
+    
     return notifications;
   } catch (error) {
-    console.error('Bildirimleri getirme hatası:', error);
+    console.error('Bildirimleri getirme hatası (API):', error);
     return [];
   }
 };
 
 export const markNotificationAsRead = async (notificationId) => {
   try {
-    await updateDoc(doc(db, 'notifications', notificationId), {
-      read: true,
-      readAt: serverTimestamp()
-    });
+    await api.post(`/notifications/${notificationId}/read`);
   } catch (error) {
-    console.error('Bildirim okuma hatası:', error);
-  }
-};
-
-export const notifyMeetingRequest = async (meetingRequest, recipients, requestedBy) => {
-  try {
-    const notifications = recipients.map(userId => ({
-      userId: userId,
-      type: 'meeting_request',
-      title: 'Yeni Toplantı İsteği',
-      message: `${requestedBy.name}, "${meetingRequest.title}" başlıklı bir toplantı talebinde bulundu`,
-      relatedId: meetingRequest.id,
-      relatedType: 'meetingRequest',
-      isRead: false,
-      createdAt: new Date(),
-      metadata: {
-        meetingTitle: meetingRequest.title,
-        projectId: meetingRequest.projectId,
-        requestedByName: requestedBy.name,
-        reason: meetingRequest.reason
-      }
-    }));
-
-    // Tüm bildirimleri ekle
-    const addPromises = notifications.map(notification => 
-      addDoc(collection(db, 'notifications'), notification)
-    );
-
-    await Promise.all(addPromises);
-    console.log('✅ Toplantı isteği bildirimleri gönderildi');
-
-  } catch (error) {
-    console.error('❌ Toplantı isteği bildirimi gönderme hatası:', error);
+    console.error('Bildirim okuma hatası (API):', error);
   }
 };
 
 export const markAllNotificationsAsRead = async (userId) => {
+  // 'userId' yine gerekmiyor
   try {
-    const notifications = await getUserNotifications(userId);
-    const unreadNotifications = notifications.filter(n => !n.read);
-    
-    const updatePromises = unreadNotifications.map(notification =>
-      markNotificationAsRead(notification.id)
-    );
-    
-    await Promise.all(updatePromises);
+    await api.post('/notifications/read-all');
   } catch (error) {
-    console.error('Tüm bildirimleri okuma hatası:', error);
+    console.error('Tüm bildirimleri okuma hatası (API):', error);
   }
 };
 
-const getStatusText = (status) => {
-  switch (status) {
-    case 'todo': return 'Yapılacak';
-    case 'inProgress': return 'Devam Ediyor';
-    case 'done': return 'Tamamlandı';
-    default: return status;
-  }
+
+// --- OLUŞTURMA FONKSİYONLARI (DEVRE DIŞI BIRAKILDI) ---
+// Bu fonksiyonlar artık React (frontend) tarafından değil,
+// API (backend) tarafından (örn: 'taskController.js' içinde)
+// çağrılacak. Frontend'in bu fonksiyonları çağırmasını engelliyoruz.
+
+export const createNotification = async (notificationData) => {
+  console.warn('createNotification artık backend\'de çalışıyor.');
+  return;
+};
+
+export const notifyTaskAssignment = async (task, assigneeId, sender) => {
+  console.warn('notifyTaskAssignment artık backend\'de çalışıyor.');
+  return;
+};
+
+export const notifyTaskUpdate = async (task, updater) => {
+  console.warn('notifyTaskUpdate artık backend\'de çalışıyor.');
+  return;
+};
+
+export const notifyMeetingCreated = async (meeting, participants, creator) => {
+  console.warn('notifyMeetingCreated artık backend\'de çalışıyor.');
+  return;
+};
+
+export const notifyMeetingRequest = async (meetingRequest, recipients, requestedBy) => {
+  console.warn('notifyMeetingRequest artık backend\'de çalışıyor.');
+  return;
 };

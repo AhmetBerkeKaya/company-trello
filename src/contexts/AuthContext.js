@@ -1,16 +1,6 @@
+// src/contexts/AuthContext.js
 import React, { createContext, useState, useContext, useEffect } from 'react';
-import {
-  signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
-  signOut,
-  onAuthStateChanged,
-  updateProfile,  // ← BU VİRGÜLÜ EKLE
-  updatePassword,
-  reauthenticateWithCredential,
-  EmailAuthProvider
-} from 'firebase/auth';
-import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
-import { auth, db } from '../firebase/config';
+import api from '../api/axios'; // Bizim API istemcimiz
 
 const AuthContext = createContext();
 
@@ -23,224 +13,187 @@ export function useAuth() {
 }
 
 export function AuthProvider({ children }) {
-  const [currentUser, setCurrentUser] = useState(null);
-  const [userData, setUserData] = useState(null);
+  const [currentUser, setCurrentUser] = useState(null); // 'user_id' vb. tutar
+  const [userData, setUserData] = useState(null);       // Tam kullanıcı objesi
   const [loading, setLoading] = useState(true);
   const [theme, setTheme] = useState('light');
 
+  // 1. LOGIN (Değişmedi)
   const login = async (email, password) => {
     try {
-      const result = await signInWithEmailAndPassword(auth, email, password);
+      const response = await api.post('/auth/login', { email, password });
+      const { token, userData } = response.data;
 
-      // Giriş başarılı olduğunda lastLoginAt alanını güncelle
-      if (result.user) {
-        const userRef = doc(db, 'users', result.user.uid);
-        await updateDoc(userRef, {
-          lastLoginAt: new Date()
-        });
+      localStorage.setItem('token', token);
+      localStorage.setItem('userData', JSON.stringify(userData));
 
-        // Local state'i de güncelle
-        const userDoc = await getDoc(userRef);
-        if (userDoc.exists()) {
-          setUserData(userDoc.data());
-        }
+      setCurrentUser(userData);
+      setUserData(userData);
+      
+      // Temayı da yükleyelim
+      if (userData.theme) {
+        setTheme(userData.theme);
+        updateHtmlTheme(userData.theme);
       }
 
-      return result;
     } catch (error) {
       console.error('Login error:', error);
-      throw error;
-    }
-  };
-
-  const register = async (email, password, userData) => {
-    try {
-      const result = await createUserWithEmailAndPassword(auth, email, password);
-
-      await updateProfile(result.user, {
-        displayName: userData.name
-      });
-
-      const userDoc = {
-        id: result.user.uid,
-        name: userData.name,
-        email: email,
-        role: userData.role || 'user',
-        department: userData.department || '',
-        createdAt: new Date(),
-        lastLoginAt: new Date() // lastLogin yerine lastLoginAt kullan
-      };
-
-      await setDoc(doc(db, 'users', result.user.uid), userDoc);
-
-      return result;
-    } catch (error) {
-      console.error('Register error:', error);
-      throw error;
-    }
-  };
-  const updateUserData = async (updatedData) => {
-    try {
-      if (!currentUser) throw new Error('Kullanıcı girişi yapılmamış');
-
-      const userRef = doc(db, 'users', currentUser.uid);
-      await updateDoc(userRef, {
-        ...updatedData,
-        updatedAt: new Date()
-      });
-
-      // Yerel state'i güncelle
-      setUserData(prev => ({ ...prev, ...updatedData }));
-
-      return true;
-    } catch (error) {
-      console.error('Profil güncelleme hatası:', error);
-      throw error;
-    }
-  };
-  const changePassword = async (currentPassword, newPassword) => {
-    try {
-      if (!currentUser) throw new Error('Kullanıcı girişi yapılmamış');
-
-      // Mevcut şifreyi doğrula
-      const credential = EmailAuthProvider.credential(
-        currentUser.email,
-        currentPassword
-      );
-
-      await reauthenticateWithCredential(currentUser, credential);
-
-      // Yeni şifreyi güncelle
-      await updatePassword(currentUser, newPassword);
-
-      return true;
-    } catch (error) {
-      console.error('Şifre değiştirme hatası:', error);
-      throw error;
-    }
-  };
-  const updateNotificationSettings = async (settings) => {
-    try {
-      if (!currentUser) throw new Error('Kullanıcı girişi yapılmamış');
-
-      const userRef = doc(db, 'users', currentUser.uid);
-      await updateDoc(userRef, {
-        notificationSettings: settings,
-        updatedAt: new Date()
-      });
-
-      // Yerel state'i güncelle
-      setUserData(prev => ({
-        ...prev,
-        notificationSettings: settings
-      }));
-
-      return true;
-    } catch (error) {
-      console.error('Bildirim ayarları güncelleme hatası:', error);
-      throw error;
-    }
-  };
-  const toggleTheme = async (newTheme) => {
-    try {
-      const themeToSet = newTheme || (theme === 'light' ? 'dark' : 'light');
-      setTheme(themeToSet);
-
-      // LocalStorage'a kaydet (hemen tema değişsin diye)
-      localStorage.setItem('theme', themeToSet);
-
-      // HTML class'ını güncelle (Tailwind dark mode için)
-      if (themeToSet === 'dark') {
-        document.documentElement.classList.add('dark');
-      } else {
-        document.documentElement.classList.remove('dark');
+      if (error.response && error.response.data && error.response.data.message) {
+        throw new Error(error.response.data.message); 
       }
-
-      // Firebase'e kaydet (eğer kullanıcı giriş yapmışsa)
-      if (currentUser) {
-        const userRef = doc(db, 'users', currentUser.uid);
-        await updateDoc(userRef, {
-          theme: themeToSet,
-          updatedAt: new Date()
-        });
-
-        // Yerel state'i güncelle
-        setUserData(prev => ({ ...prev, theme: themeToSet }));
-      }
-
-      return true;
-    } catch (error) {
-      console.error('Tema değiştirme hatası:', error);
       throw error;
     }
   };
+
+  // 2. LOGOUT (Değişmedi)
   const logout = () => {
-    return signOut(auth);
+    localStorage.removeItem('token');
+    localStorage.removeItem('userData');
+    setCurrentUser(null);
+    setUserData(null);
+    return Promise.resolve();
   };
 
+  // 3. OTURUM KONTROLÜ (Değişmedi)
   useEffect(() => {
-    // Tema kontrolü - sayfa yüklendiğinde
+    // Tema kontrolü (localStorage'dan)
     const savedTheme = localStorage.getItem('theme') || 'light';
     setTheme(savedTheme);
+    updateHtmlTheme(savedTheme);
 
-    // HTML class'ını ayarla
-    if (savedTheme === 'dark') {
+    // Oturum kontrolü (localStorage'dan)
+    const token = localStorage.getItem('token');
+    const storedUserData = localStorage.getItem('userData');
+
+    if (token && storedUserData) {
+      try {
+        const parsedData = JSON.parse(storedUserData);
+        setCurrentUser(parsedData);
+        setUserData(parsedData);
+        // Kullanıcının veritabanındaki temasını da yükle
+        if (parsedData.theme) {
+          setTheme(parsedData.theme);
+          updateHtmlTheme(parsedData.theme);
+        }
+      } catch (error) {
+        console.error("Kullanıcı verisi parse edilemedi", error);
+        localStorage.removeItem('token');
+        localStorage.removeItem('userData');
+      }
+    }
+    
+    setLoading(false);
+  }, []);
+
+  // --- YENİ EKLENEN/GÜNCELLENEN FONKSİYONLAR ---
+
+  // YENİ: updateUserData (Profile.js için)
+  const updateUserData = async (updatedData) => {
+    try {
+      // API'ye yolla
+      const response = await api.put('/users/me/profile', updatedData);
+      
+      // Başarılı olursa, dönen güncel kullanıcı verisiyle
+      // state'i ve localStorage'ı güncelle
+      const newUserData = response.data;
+      setUserData(newUserData);
+      setCurrentUser(newUserData); // currentUser'ı da güncelle
+      localStorage.setItem('userData', JSON.stringify(newUserData));
+      
+      return true;
+    } catch (error) {
+      console.error('Profil güncelleme hatası (AuthContext):', error);
+      throw error; // Hatayı Profile.js'e geri fırlat
+    }
+  };
+
+  // YENİ: changePassword (Profile.js için)
+  const changePassword = async (currentPassword, newPassword) => {
+    try {
+      await api.put('/users/me/password', { currentPassword, newPassword });
+      return true;
+    } catch (error) {
+      console.error('Şifre değiştirme hatası (AuthContext):', error);
+      throw error; // Hatayı Profile.js'e geri fırlat
+    }
+  };
+
+  // YENİ: updateNotificationSettings (Profile.js için)
+  const updateNotificationSettings = async (settings) => {
+    try {
+      const response = await api.put('/users/me/settings', { 
+        notificationSettings: settings 
+      });
+      
+      // Dönen güncel 'notification_settings' ile state'i güncelle
+      const newSettings = response.data.notification_settings;
+      const updatedUserData = { ...userData, notification_settings: newSettings };
+      
+      setUserData(updatedUserData);
+      localStorage.setItem('userData', JSON.stringify(updatedUserData));
+      
+      return true;
+    } catch (error) {
+      console.error('Bildirim ayarı kaydetme hatası (AuthContext):', error);
+      throw error;
+    }
+  };
+
+  // YENİ: toggleTheme (Profile.js ve Navbar.js için)
+  const toggleTheme = async (newTheme) => {
+    const themeToSet = newTheme || (theme === 'light' ? 'dark' : 'light');
+    
+    // 1. Arayüzü hemen güncelle
+    setTheme(themeToSet);
+    localStorage.setItem('theme', themeToSet);
+    updateHtmlTheme(themeToSet);
+
+    try {
+      // 2. API'ye (veritabanı) kaydet
+      await api.put('/users/me/settings', { 
+        theme: themeToSet 
+      });
+      
+      // 3. 'userData' state'ini de güncelle
+      const updatedUserData = { ...userData, theme: themeToSet };
+      setUserData(updatedUserData);
+      localStorage.setItem('userData', JSON.stringify(updatedUserData));
+      
+      return true;
+    } catch (error) {
+      console.error('Tema değiştirme hatası (AuthContext):', error);
+      // Hata olursa (örn: API kapalıysa) arayüz değişikliğini geri alma
+      // (Kullanıcı deneyimi için arayüzde kalsın)
+    }
+  };
+
+  // YENİ: HTML tag'ine 'dark' class'ı ekleyen yardımcı fonksiyon
+  const updateHtmlTheme = (themeName) => {
+    if (themeName === 'dark') {
       document.documentElement.classList.add('dark');
     } else {
       document.documentElement.classList.remove('dark');
     }
+  };
 
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      setCurrentUser(user);
-
-      if (user) {
-        try {
-          const userDoc = await getDoc(doc(db, 'users', user.uid));
-          if (userDoc.exists()) {
-            const userData = userDoc.data();
-            setUserData(userData);
-
-            // Kullanıcının tema tercihini yükle
-            if (userData.theme) {
-              setTheme(userData.theme);
-              localStorage.setItem('theme', userData.theme);
-              if (userData.theme === 'dark') {
-                document.documentElement.classList.add('dark');
-              } else {
-                document.documentElement.classList.remove('dark');
-              }
-            }
-          }
-        } catch (error) {
-          console.error('Error fetching user data:', error);
-        }
-      } else {
-        setUserData(null);
-      }
-
-      setLoading(false);
-    });
-
-    return unsubscribe;
-  }, []);
+  // SİLİNDİ: register (Artık kullanılmıyor)
 
   const value = {
     currentUser,
     userData,
     login,
-    register,
     logout,
-    changePassword,
-    updateUserData,
-    updateNotificationSettings,
-    toggleTheme,
+    changePassword,             // Artık çalışıyor
+    updateUserData,             // Artık çalışıyor
+    updateNotificationSettings, // Artık çalışıyor
+    toggleTheme,                // Artık çalışıyor
     theme,
     loading
   };
 
   return (
     <AuthContext.Provider value={value}>
-      {children}
+      {!loading && children}
     </AuthContext.Provider>
   );
 }

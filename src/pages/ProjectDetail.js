@@ -1,8 +1,8 @@
+// src/pages/ProjectDetail.js
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { doc, getDoc, collection, query, where, getDocs, updateDoc, deleteDoc } from 'firebase/firestore';
-import { db } from '../firebase/config';
+import api from '../api/axios';
 import LoadingSpinner from '../components/UI/LoadingSpinner';
 import Board from '../components/Kanban/Board';
 
@@ -27,11 +27,11 @@ const ProjectDetail = () => {
     const [showDeleteModal, setShowDeleteModal] = useState(false);
     const [showCompleteModal, setShowCompleteModal] = useState(false);
 
-    // YENİ: Kullanıcı rolüne göre ayarlar sekmesini kontrol et
     const canViewSettings = userData?.role === 'admin' || userData?.role === 'manager';
 
+    // Proje detaylarını, üyeleri ve istatistikleri çeker
     useEffect(() => {
-        if (projectId) {
+        if (projectId && userData) {
             fetchProjectDetail();
         }
     }, [projectId, userData]);
@@ -41,192 +41,108 @@ const ProjectDetail = () => {
             setLoading(true);
             setError('');
 
-            // Proje detaylarını getir
-            const projectDoc = await getDoc(doc(db, 'projects', projectId));
+            const [projectRes, membersRes, _] = await Promise.all([
+                api.get(`/projects/${projectId}`),
+                api.get(`/projects/${projectId}/members`),
+                refreshProjectStats() // Stats'ları ayrı fonksiyonla çek
+            ]);
 
-            if (!projectDoc.exists()) {
-                setError('Proje bulunamadı');
-                return;
-            }
-
-            const projectData = {
-                id: projectDoc.id,
-                ...projectDoc.data()
-            };
-
-            // Kullanıcı bu projenin üyesi mi kontrol et
-            if (!projectData.members?.includes(userData.id)) {
-                setError('Bu projeyi görüntüleme yetkiniz yok');
-                return;
-            }
-
+            const projectData = projectRes.data;
+            const membersData = membersRes.data;
+            
             setProject(projectData);
-
-            // Proje üyelerinin detaylarını getir
-            await fetchProjectMembers(projectData.members);
-
-            // Proje istatistiklerini getir
-            await fetchProjectStats();
+            setProjectMembers(membersData);
 
         } catch (error) {
             console.error('Proje detay getirme hatası:', error);
-            setError('Proje yüklenirken bir hata oluştu');
+            if (error.response && error.response.status === 404) {
+                setError('Proje bulunamadı');
+            } else if (error.response && error.response.status === 403) {
+                setError('Bu projeyi görüntüleme yetkiniz yok');
+            } else {
+                setError('Proje yüklenirken bir hata oluştu');
+            }
         } finally {
             setLoading(false);
         }
     };
 
-    const fetchProjectMembers = async (memberIds) => {
-        try {
-            if (!memberIds || memberIds.length === 0) return;
-
-            // Firestore kuralları izin vermiyorsa, hata yakala ve devam et
-            try {
-                const usersQuery = query(
-                    collection(db, 'users'),
-                    where('__name__', 'in', memberIds.slice(0, 10))
-                );
-
-                const usersSnapshot = await getDocs(usersQuery);
-                const members = usersSnapshot.docs.map(doc => ({
-                    id: doc.id,
-                    ...doc.data()
-                }));
-
-                setProjectMembers(members);
-            } catch (firestoreError) {
-                console.warn('Firestore üye getirme hatası, sadece ID\'ler gösterilecek:', firestoreError);
-                // Hata durumunda sadece ID'leri göster
-                const membersWithIdsOnly = memberIds.map(id => ({
-                    id: id,
-                    name: 'Kullanıcı Yüklenemedi',
-                    role: 'unknown'
-                }));
-                setProjectMembers(membersWithIdsOnly);
-            }
-        } catch (error) {
-            console.error('Üyeleri getirme hatası:', error);
-        }
-    };
-    // Proje istatistiklerini getir
-    const fetchProjectStats = async () => {
-        if (!projectId) return;
-
-        try {
-            setLoadingStats(true);
-
-            const stats = {
-                totalTasks: 0,
-                completedTasks: 0,
-                inProgressTasks: 0,
-                todoTasks: 0
-            };
-
-            // Projeye ait görevleri getir
-            const tasksQuery = query(
-                collection(db, 'tasks'),
-                where('projectId', '==', projectId)
-            );
-
-            const tasksSnapshot = await getDocs(tasksQuery);
-            const tasks = tasksSnapshot.docs.map(doc => doc.data());
-
-            stats.totalTasks = tasks.length;
-            stats.completedTasks = tasks.filter(task => task.status === 'done').length;
-            stats.inProgressTasks = tasks.filter(task => task.status === 'inProgress').length;
-            stats.todoTasks = tasks.filter(task => task.status === 'todo').length;
-
-            setProjectStats(stats);
-        } catch (error) {
-            console.error('Proje istatistikleri getirme hatası:', error);
-        } finally {
-            setLoadingStats(false);
-        }
+    // Sadece istatistikleri yenileyen fonksiyon (Board.js'e yollanacak)
+    const refreshProjectStats = async () => {
+      if (!projectId) return;
+      setLoadingStats(true);
+      try {
+        const statsRes = await api.get(`/projects/${projectId}/stats`);
+        setProjectStats(statsRes.data);
+      } catch (error) {
+        console.error('Proje istatistikleri yenileme hatası:', error);
+      } finally {
+        setLoadingStats(false);
+      }
     };
 
-    // Proje düzenleme yetkisi kontrolü
+    // Proje düzenleme yetkisini ayarlar
     useEffect(() => {
         if (project && userData) {
-            const canEdit = userData.role === 'admin' || project.createdBy === userData.id;
+            const canEdit = userData.role === 'admin' || project.created_by_user_id === userData.user_id;
             setCanEditProject(canEdit);
         }
     }, [project, userData]);
 
-    // Proje durumunu güncelle
+    // YENİ: handleUpdateProjectStatus (DÜZELTİLDİ: setProject eklendi)
     const handleUpdateProjectStatus = async (newStatus) => {
         if (!canEditProject) return;
 
-        // Tamamlandı durumuna geçişte onay iste
         if (newStatus === 'completed') {
             setShowCompleteModal(true);
             return;
         }
 
         try {
-            await updateDoc(doc(db, 'projects', projectId), {
-                status: newStatus,
-                updatedAt: new Date()
+            const response = await api.put(`/projects/${projectId}/status`, {
+              status: newStatus
             });
-
-            // Local state'i güncelle
-            setProject(prev => ({ ...prev, status: newStatus }));
+            
+            // DÜZELTME: API'den dönen güncel proje ile state'i GÜNCELLE
+            setProject(response.data); 
 
             alert(`Proje durumu "${getStatusText(newStatus)}" olarak güncellendi!`);
         } catch (error) {
             console.error('Proje durumu güncelleme hatası:', error);
-            alert('Proje durumu güncellenirken hata oluştu: ' + error.message);
+            alert('Proje durumu güncellenirken hata oluştu: ' + (error.response?.data?.message || error.message));
         }
     };
 
-    // Projeyi tamamlama onayı
+    // YENİ: handleCompleteProject (API'ye bağlandı)
     const handleCompleteProject = async () => {
         try {
-            await updateDoc(doc(db, 'projects', projectId), {
-                status: 'completed',
-                completedAt: new Date(),
-                updatedAt: new Date()
+            const response = await api.put(`/projects/${projectId}/status`, {
+              status: 'completed'
             });
-
-            // Local state'i güncelle
-            setProject(prev => ({ ...prev, status: 'completed' }));
-
+            
+            setProject(response.data); // State'i güncelle
             setShowCompleteModal(false);
             alert('✅ Proje başarıyla tamamlandı olarak işaretlendi!');
         } catch (error) {
             console.error('Proje tamamlama hatası:', error);
-            alert('Proje tamamlanırken hata oluştu: ' + error.message);
+            alert('Proje tamamlanırken hata oluştu: ' + (error.response?.data?.message || error.message));
         }
     };
 
-    // Proje silme fonksiyonu
+    // YENİ: handleDeleteProject (API'ye bağlandı)
     const handleDeleteProject = async () => {
         try {
-            // Önce projeye ait tüm görevleri sil
-            const tasksQuery = query(
-                collection(db, 'tasks'),
-                where('projectId', '==', projectId)
-            );
-            const tasksSnapshot = await getDocs(tasksQuery);
-
-            const deletePromises = tasksSnapshot.docs.map(doc =>
-                deleteDoc(doc(db, 'tasks', doc.id))
-            );
-
-            await Promise.all(deletePromises);
-
-            // Projeyi sil
-            await deleteDoc(doc(db, 'projects', projectId));
-
+            await api.delete(`/projects/${projectId}`);
             setShowDeleteModal(false);
             alert('Proje başarıyla silindi!');
-            navigate('/projects');
+            navigate('/projects'); // Projeler listesine geri dön
         } catch (error) {
             console.error('Proje silme hatası:', error);
-            alert('Proje silinirken hata oluştu: ' + error.message);
+            alert('Proje silinirken hata oluştu: ' + (error.response?.data?.message || error.message));
         }
     };
-
-    // Proje durumuna göre stil
+    
+    // --- GÖRSEL FONKSİYONLAR (DEĞİŞMEDİ) ---
     const getStatusClass = (status) => {
         switch (status) {
             case 'active':
@@ -239,7 +155,6 @@ const ProjectDetail = () => {
                 return 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300';
         }
     };
-
     const getStatusText = (status) => {
         switch (status) {
             case 'active':
@@ -252,10 +167,9 @@ const ProjectDetail = () => {
                 return status;
         }
     };
-
-    // Proje tamamlandı mı kontrolü
     const isProjectCompleted = project?.status === 'completed';
 
+    // --- RENDER (YÜKLENİYOR / HATA) ---
     if (loading) {
         return (
             <div className="max-w-7xl mx-auto py-6 px-4">
@@ -265,7 +179,6 @@ const ProjectDetail = () => {
             </div>
         );
     }
-
     if (error) {
         return (
             <div className="max-w-7xl mx-auto py-6 px-4">
@@ -283,24 +196,11 @@ const ProjectDetail = () => {
             </div>
         );
     }
-
     if (!project) {
-        return (
-            <div className="max-w-7xl mx-auto py-6 px-4">
-                <div className="bg-white dark:bg-gray-800 rounded-lg shadow dark:shadow-gray-900/50 p-8 text-center">
-                    <div className="text-6xl mb-4">📁</div>
-                    <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">Proje Bulunamadı</h2>
-                    <Link
-                        to="/projects"
-                        className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium transition-colors"
-                    >
-                        Projelere Dön
-                    </Link>
-                </div>
-            </div>
-        );
+        return null; 
     }
 
+    // --- RENDER (ANA SAYFA) ---
     return (
         <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
             {/* Üst Bilgi ve Navigasyon */}
@@ -310,15 +210,13 @@ const ProjectDetail = () => {
                         Projeler
                     </Link>
                     <span>›</span>
-                    <span className="text-gray-900 dark:text-white font-medium">{project.title}</span>
+                    <span className="text-gray-900 dark:text-white font-medium">{project.name}</span>
                 </nav>
-
                 <div className="flex justify-between items-start">
                     <div>
-                        <h1 className="text-3xl font-bold text-gray-900 dark:text-white">{project.title}</h1>
+                        <h1 className="text-3xl font-bold text-gray-900 dark:text-white">{project.name}</h1>
                         <p className="text-gray-600 dark:text-gray-400 mt-2">{project.description}</p>
                     </div>
-
                     <div className="flex items-center space-x-3">
                         <span className={`px-3 py-1 text-sm rounded-full ${getStatusClass(project.status)}`}>
                             {getStatusText(project.status)}
@@ -331,7 +229,6 @@ const ProjectDetail = () => {
                         </button>
                     </div>
                 </div>
-
                 {/* Proje Tamamlandı Uyarısı */}
                 {isProjectCompleted && (
                     <div className="mt-4 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
@@ -349,7 +246,7 @@ const ProjectDetail = () => {
                 )}
             </div>
 
-            {/* Tab Navigation - GÜNCELLENDİ: Kullanıcılar için Ayarlar sekmesini gizle */}
+            {/* Tab Navigation */}
             <div className="mb-6 border-b border-gray-200 dark:border-gray-700">
                 <nav className="flex space-x-8">
                     {[
@@ -378,18 +275,18 @@ const ProjectDetail = () => {
                     <div className="flex justify-between items-center mb-6">
                         <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Görev Tahtası</h2>
                         <div className="text-sm text-gray-500 dark:text-gray-400">
-                            Proje: <strong>{project?.title}</strong>
+                            Proje: <strong>{project?.name}</strong>
                             {isProjectCompleted && (
                                 <span className="ml-2 text-yellow-600 dark:text-yellow-400">(Tamamlandı)</span>
                             )}
                         </div>
                     </div>
-
-                    {/* Kanban Board - GÜNCELLENDİ: Kullanıcı yetkisi prop'u eklendi */}
+                    {/* Kanban Board (refreshProjectStats prop'u eklendi) */}
                     <Board
                         projectId={projectId}
                         userRole={userData?.role}
-                        currentUserId={userData?.id}
+                        currentUserId={userData?.user_id}
+                        onTaskMoveSuccess={refreshProjectStats}
                     />
                 </div>
             )}
@@ -408,14 +305,14 @@ const ProjectDetail = () => {
                                 ) : (
                                     <div className="space-y-3">
                                         {projectMembers.map(member => (
-                                            <div key={member.id} className="flex items-center space-x-3">
+                                            <div key={member.user_id} className="flex items-center space-x-3">
                                                 <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white text-sm font-semibold">
                                                     {member.name?.charAt(0) || 'U'}
                                                 </div>
                                                 <div className="flex-1">
                                                     <div className="text-sm font-medium text-gray-900 dark:text-white">
                                                         {member.name}
-                                                        {member.id === project.createdBy && (
+                                                        {member.user_id === project.created_by_user_id && (
                                                             <span className="ml-2 text-xs text-blue-600 dark:text-blue-400">(Sahip)</span>
                                                         )}
                                                     </div>
@@ -445,32 +342,24 @@ const ProjectDetail = () => {
                                 ) : (
                                     <>
                                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                                            {/* Kartlar */}
                                             <div className="text-center p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
-                                                <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">
-                                                    {projectStats.totalTasks}
-                                                </div>
+                                                <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">{projectStats.totalTasks}</div>
                                                 <div className="text-sm text-gray-600 dark:text-gray-400">Toplam Görev</div>
                                             </div>
                                             <div className="text-center p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
-                                                <div className="text-2xl font-bold text-green-600 dark:text-green-400">
-                                                    {projectStats.completedTasks}
-                                                </div>
+                                                <div className="text-2xl font-bold text-green-600 dark:text-green-400">{projectStats.completedTasks}</div>
                                                 <div className="text-sm text-gray-600 dark:text-gray-400">Tamamlanan</div>
                                             </div>
                                             <div className="text-center p-4 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg">
-                                                <div className="text-2xl font-bold text-yellow-600 dark:text-yellow-400">
-                                                    {projectStats.inProgressTasks}
-                                                </div>
+                                                <div className="text-2xl font-bold text-yellow-600 dark:text-yellow-400">{projectStats.inProgressTasks}</div>
                                                 <div className="text-sm text-gray-600 dark:text-gray-400">Devam Eden</div>
                                             </div>
                                             <div className="text-center p-4 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
-                                                <div className="text-2xl font-bold text-purple-600 dark:text-purple-400">
-                                                    {projectStats.todoTasks}
-                                                </div>
+                                                <div className="text-2xl font-bold text-purple-600 dark:text-purple-400">{projectStats.todoTasks}</div>
                                                 <div className="text-sm text-gray-600 dark:text-gray-400">Yapılacak</div>
                                             </div>
                                         </div>
-
                                         {/* İlerleme Çubuğu */}
                                         {projectStats.totalTasks > 0 && (
                                             <div className="mt-6">
@@ -496,6 +385,7 @@ const ProjectDetail = () => {
                 </div>
             )}
 
+            {/* Ayarlar Sekmesi (DÜZELTİLDİ: JSX Eklendi) */}
             {activeTab === 'settings' && canViewSettings && (
                 <div className="bg-white dark:bg-gray-800 rounded-lg shadow dark:shadow-gray-900/50 overflow-hidden">
                     <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
@@ -503,10 +393,9 @@ const ProjectDetail = () => {
                     </div>
 
                     <div className="p-6">
-                        {/* Proje Durumu */}
+                        {/* Proje Durumu (DÜZELTİLDİ: JSX Eklendi) */}
                         <div className="mb-6">
                             <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">Proje Durumu</h3>
-
                             <div className="flex space-x-4">
                                 {[
                                     { value: 'active', label: 'Aktif', color: 'green', icon: '🚀' },
@@ -539,7 +428,6 @@ const ProjectDetail = () => {
                                     </button>
                                 ))}
                             </div>
-
                             {!canEditProject && (
                                 <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
                                     * Proje durumunu değiştirmek için proje sahibi veya yönetici olmalısınız
@@ -547,11 +435,10 @@ const ProjectDetail = () => {
                             )}
                         </div>
 
-                        {/* Tehlikeli İşlemler */}
-                        {(userData.role === 'admin' || project.createdBy === userData.id) && (
+                        {/* Tehlikeli İşlemler (DÜZELTİLDİ: JSX Eklendi) */}
+                        {(userData.role === 'admin' || project.created_by_user_id === userData.user_id) && (
                             <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
                                 <h3 className="text-lg font-medium text-red-600 dark:text-red-400 mb-4">Tehlikeli İşlemler</h3>
-
                                 <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
                                     <div className="flex items-center justify-between">
                                         <div>
@@ -574,13 +461,15 @@ const ProjectDetail = () => {
                 </div>
             )}
 
+            {/* DÜZELTME: EKSİK MODALLAR EKLENDİ */}
+
             {/* Silme Onay Modal'ı */}
             {showDeleteModal && (
                 <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
                     <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md">
                         <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Projeyi Sil</h3>
                         <p className="text-gray-600 dark:text-gray-400 mb-6">
-                            "{project.title}" projesini silmek istediğinizden emin misiniz?
+                            "{project.name}" projesini silmek istediğinizden emin misiniz?
                             Bu işlem geri alınamaz ve tüm görevler silinecek.
                         </p>
                         <div className="flex justify-end space-x-3">
@@ -608,9 +497,8 @@ const ProjectDetail = () => {
                         <div className="text-2xl mb-4 text-center">🎉</div>
                         <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2 text-center">Projeyi Tamamla</h3>
                         <p className="text-gray-600 dark:text-gray-400 mb-4 text-center">
-                            "{project.title}" projesini tamamlandı olarak işaretlemek üzeresiniz.
+                            "{project.name}" projesini tamamlandı olarak işaretlemek üzeresiniz.
                         </p>
-
                         <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4 mb-4">
                             <h4 className="font-medium text-yellow-800 dark:text-yellow-300 mb-2">⚠️ Önemli Uyarı</h4>
                             <ul className="text-sm text-yellow-700 dark:text-yellow-400 space-y-1">
@@ -620,11 +508,9 @@ const ProjectDetail = () => {
                                 <li>• Proje sadece <strong>okuma modunda</strong> olacak</li>
                             </ul>
                         </div>
-
                         <p className="text-sm text-gray-500 dark:text-gray-400 mb-6 text-center">
                             Bu işlemi onaylıyor musunuz?
                         </p>
-
                         <div className="flex justify-end space-x-3">
                             <button
                                 onClick={() => setShowCompleteModal(false)}

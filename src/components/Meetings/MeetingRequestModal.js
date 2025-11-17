@@ -1,15 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { collection, addDoc, getDocs, query, where, doc, getDoc } from 'firebase/firestore';
-import { db } from '../../firebase/config';
+import api from '../../api/axios'; // YENİ
 import LoadingSpinner from '../UI/LoadingSpinner';
-import { notifyMeetingRequest } from '../../utils/notificationHelper';
 
 const MeetingRequestModal = ({ isOpen, onClose, onSave }) => {
   const { userData } = useAuth();
   const [loading, setLoading] = useState(false);
   const [projects, setProjects] = useState([]);
-  const [managersAndAdmins, setManagersAndAdmins] = useState([]);
+  // SİLİNDİ: managersAndAdmins state'i
 
   // Form state
   const [formData, setFormData] = useState({
@@ -25,7 +23,7 @@ const MeetingRequestModal = ({ isOpen, onClose, onSave }) => {
 
   useEffect(() => {
     if (isOpen) {
-      fetchProjectsAndManagers();
+      fetchProjects(); // YENİ: Sadece projeleri çek
       setFormData({
         title: '',
         description: '',
@@ -38,38 +36,15 @@ const MeetingRequestModal = ({ isOpen, onClose, onSave }) => {
     }
   }, [isOpen]);
 
-  const fetchProjectsAndManagers = async () => {
+  // YENİ: fetchProjects (API'den)
+  const fetchProjects = async () => {
     try {
-      // Kullanıcının üyesi olduğu projeleri getir
-      const projectsQuery = query(
-        collection(db, 'projects'),
-        where('members', 'array-contains', userData.id)
-      );
-
-      const projectsSnapshot = await getDocs(projectsQuery);
-      const projectsList = projectsSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-
-      setProjects(projectsList);
-
-      // Tüm admin ve manager'ları getir
-      const usersQuery = query(
-        collection(db, 'users'),
-        where('role', 'in', ['admin', 'manager'])
-      );
-
-      const usersSnapshot = await getDocs(usersQuery);
-      const managersAndAdminsList = usersSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-
-      setManagersAndAdmins(managersAndAdminsList);
+      // Kullanıcının üye olduğu projeleri getir (API 'GET /api/projects')
+      const response = await api.get('/projects');
+      setProjects(response.data);
     } catch (error) {
-      console.error('Proje ve yönetici getirme hatası:', error);
-      setError('Proje ve yönetici bilgileri yüklenirken hata oluştu');
+      console.error('Proje getirme hatası:', error);
+      setError('Proje bilgileri yüklenirken hata oluştu');
     }
   };
 
@@ -81,6 +56,7 @@ const MeetingRequestModal = ({ isOpen, onClose, onSave }) => {
     }));
   };
 
+  // YENİ: handleSubmit (API'ye bağlandı)
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
@@ -93,36 +69,25 @@ const MeetingRequestModal = ({ isOpen, onClose, onSave }) => {
     setLoading(true);
 
     try {
-      // Toplantı isteğini oluştur
-      const meetingRequest = {
+      // YENİ: API'ye POST isteği at
+      await api.post('/meeting-requests', {
         title: formData.title,
         description: formData.description,
         projectId: formData.projectId,
         reason: formData.reason,
         preferredDate: formData.preferredDate || null,
-        preferredTime: formData.preferredTime || null,
-        requestedBy: userData.id,
-        status: 'pending', // pending, approved, rejected
-        createdAt: new Date(),
-        type: 'request' // Normal toplantıdan ayırmak için
-      };
+        preferredTime: formData.preferredTime || null
+        // 'requestedBy' ve 'status' API'de eklenecek
+      });
 
-      const docRef = await addDoc(collection(db, 'meetingRequests'), meetingRequest);
+      // SİLİNDİ: notifyMeetingRequest (Artık backend yapıyor)
 
-      // Proje yöneticisi ve admin'lere bildirim gönder
-      await notifyMeetingRequest(
-        { ...meetingRequest, id: docRef.id },
-        managersAndAdmins.map(user => user.id),
-        { id: userData.id, name: userData.name }
-      );
-
-      onSave();
       onClose();
-      alert('✅ Toplantı isteğiniz başarıyla gönderildi! Proje yöneticisi ve adminlere bildirim gönderildi.');
+      alert('✅ Toplantı isteğiniz başarıyla gönderildi! Yöneticilere bildirim gönderildi.');
 
     } catch (error) {
       console.error('Toplantı isteği oluşturma hatası:', error);
-      setError('Toplantı isteği oluşturulurken bir hata oluştu: ' + error.message);
+      setError('Toplantı isteği oluşturulurken bir hata oluştu: ' + (error.response?.data?.message || error.message));
     } finally {
       setLoading(false);
     }
@@ -179,7 +144,7 @@ const MeetingRequestModal = ({ isOpen, onClose, onSave }) => {
               />
             </div>
 
-            {/* Proje Seçimi */}
+            {/* Proje Seçimi (Veritabanı sütun adları güncellendi) */}
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 İlgili Proje *
@@ -193,8 +158,8 @@ const MeetingRequestModal = ({ isOpen, onClose, onSave }) => {
               >
                 <option value="">Proje Seçin</option>
                 {projects.map(project => (
-                  <option key={project.id} value={project.id}>
-                    {project.title}
+                  <option key={project.project_id} value={project.project_id}>
+                    {project.name} {/* title -> name */}
                   </option>
                 ))}
               </select>

@@ -1,14 +1,15 @@
+// src/pages/AdminUsers.js
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { collection, getDocs, doc, updateDoc, query, orderBy } from 'firebase/firestore';
-import { db } from '../firebase/config';
+// SİLİNDİ: Firebase importları
+import api from '../api/axios'; // YENİ
 import LoadingSpinner from '../components/UI/LoadingSpinner';
 
 const AdminUsers = () => {
   const { userData } = useAuth();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [updatingUser, setUpdatingUser] = useState(null);
+  const [updatingUser, setUpdatingUser] = useState(null); // Değişen kullanıcı ID'si
 
   useEffect(() => {
     if (userData && userData.role === 'admin') {
@@ -16,29 +17,25 @@ const AdminUsers = () => {
     }
   }, [userData]);
 
+  // YENİ: fetchUsers (API'ye bağlandı)
   const fetchUsers = async () => {
     try {
       setLoading(true);
 
-      // Basit sorgu - orderBy olmadan
-      const usersQuery = query(collection(db, 'users'));
-
-      const usersSnapshot = await getDocs(usersQuery);
-      const usersData = usersSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
+      // (Bebek Adımı 4.B'de yazdığımız, şimdi güncellediğimiz yol)
+      const response = await api.get('/users');
+      
+      const usersData = response.data.map(user => ({
+        ...user,
+        // PostgreSQL tarih formatını JavaScript Date objesine çevir
+        createdAt: user.created_at ? new Date(user.created_at) : null,
+        lastLoginAt: user.last_login_at ? new Date(user.last_login_at) : null
       }));
 
-      // İstemci tarafında sırala
-      usersData.sort((a, b) => {
-        const dateA = a.createdAt?.toDate?.() || a.lastLoginAt?.toDate?.() || new Date(0);
-        const dateB = b.createdAt?.toDate?.() || b.lastLoginAt?.toDate?.() || new Date(0);
-        return dateB - dateA; // Yeniden eskiye
-      });
+      // İstemci tarafında sırala (API zaten yapıyor ama garanti olsun)
+      usersData.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 
       console.log('📊 Kullanıcılar getirildi:', usersData.length, 'kullanıcı');
-      console.log('👥 Kullanıcı listesi:', usersData);
-
       setUsers(usersData);
     } catch (error) {
       console.error('❌ Kullanıcıları getirme hatası:', error);
@@ -47,8 +44,9 @@ const AdminUsers = () => {
     }
   };
 
+  // YENİ: updateUserRole (API'ye bağlandı)
   const updateUserRole = async (userId, newRole) => {
-    if (userId === userData.id) {
+    if (userId === userData.user_id) { // 'id' -> 'user_id'
       alert('Kendi rolünüzü değiştiremezsiniz!');
       return;
     }
@@ -56,43 +54,57 @@ const AdminUsers = () => {
     setUpdatingUser(userId);
 
     try {
-      await updateDoc(doc(db, 'users', userId), {
-        role: newRole,
-        updatedAt: new Date()
-      });
+      // YENİ API yolu
+      await api.put(`/users/${userId}/role`, { newRole });
 
       // Local state'i güncelle
       setUsers(prev => prev.map(user =>
-        user.id === userId ? { ...user, role: newRole } : user
+        user.user_id === userId ? { ...user, role: newRole } : user
       ));
 
     } catch (error) {
       console.error('Rol güncelleme hatası:', error);
-      alert('Rol güncellenirken hata oluştu: ' + error.message);
+      alert('Rol güncellenirken hata oluştu: ' + (error.response?.data?.message || error.message));
     } finally {
       setUpdatingUser(null);
     }
   };
 
+  // YENİ: updateUserDepartment (API'ye bağlandı)
   const updateUserDepartment = async (userId, newDepartment) => {
-    setUpdatingUser(userId);
-
+    // Sadece 'blur' (input'tan çıkınca) tetiklenmesi için state'i anlık güncelle
+    setUsers(prev => prev.map(user =>
+      user.user_id === userId ? { ...user, department: newDepartment } : user
+    ));
+    
+    // API isteğini 'debounce' (gecikme) olmadan direkt gönder
     try {
-      await updateDoc(doc(db, 'users', userId), {
-        department: newDepartment,
-        updatedAt: new Date()
-      });
-
-      setUsers(prev => prev.map(user =>
-        user.id === userId ? { ...user, department: newDepartment } : user
-      ));
-
+      setUpdatingUser(userId); // Spinner'ı başlat
+      await api.put(`/users/${userId}/department`, { newDepartment });
+      
+      // API'den başarılı dönerse state'i tekrar set etmeye gerek yok,
+      // zaten anlık olarak set etmiştik.
+      
     } catch (error) {
       console.error('Departman güncelleme hatası:', error);
+      // Hata olursa eski state'e geri dön (veya 'fetchUsers' yap)
+      fetchUsers(); // En temizi
     } finally {
-      setUpdatingUser(null);
+      setUpdatingUser(null); // Spinner'ı durdur
     }
   };
+  
+  // YENİ: Departman input'unu 'blur' (odaktan çıkma) ile kaydet
+  // 'onChange' ile her tuşa basıldığında API isteği atmamak için
+  const handleDepartmentChange = (userId, value) => {
+     setUsers(prev => prev.map(user =>
+        user.user_id === userId ? { ...user, department: value } : user
+      ));
+  };
+  const handleDepartmentBlur = (userId, value) => {
+     updateUserDepartment(userId, value);
+  };
+
 
   // Rol renkleri
   const getRoleColor = (role) => {
@@ -114,6 +126,7 @@ const AdminUsers = () => {
     }
   };
 
+  // Yetki kontrolü
   if (userData?.role !== 'admin') {
     return (
       <div className="max-w-7xl mx-auto py-6 px-4">
@@ -126,6 +139,7 @@ const AdminUsers = () => {
     );
   }
 
+  // Yükleniyor
   if (loading) {
     return (
       <div className="max-w-7xl mx-auto py-6 px-4">
@@ -136,6 +150,7 @@ const AdminUsers = () => {
     );
   }
 
+  // --- RENDER (DÜZELTME: Veritabanı sütun adları) ---
   return (
     <div className="max-w-7xl mx-auto py-6 px-4">
       {/* Header */}
@@ -182,7 +197,7 @@ const AdminUsers = () => {
 
         <div className="divide-y divide-gray-200 dark:divide-gray-700">
           {users.map(user => (
-            <div key={user.id} className="px-6 py-4 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
+            <div key={user.user_id} className="px-6 py-4 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
               <div className="flex items-center justify-between">
                 {/* Kullanıcı Bilgileri */}
                 <div className="flex items-center space-x-4 flex-1">
@@ -193,7 +208,7 @@ const AdminUsers = () => {
                     <div className="flex items-center space-x-2">
                       <h3 className="font-medium text-gray-900 dark:text-white truncate">
                         {user.name || 'İsimsiz Kullanıcı'}
-                        {user.id === userData.id && (
+                        {user.user_id === userData.user_id && (
                           <span className="ml-2 text-xs text-blue-600 dark:text-blue-400">(Siz)</span>
                         )}
                       </h3>
@@ -203,11 +218,10 @@ const AdminUsers = () => {
                       {user.department && (
                         <span>🏢 {user.department}</span>
                       )}
-                      <span>📅 {user.createdAt?.toDate?.().toLocaleDateString('tr-TR') || 'Bilinmiyor'}</span>
+                      {/* DÜZELTME: PostgreSQL tarih formatı */}
+                      <span>📅 {user.createdAt ? user.createdAt.toLocaleDateString('tr-TR') : 'Bilinmiyor'}</span>
                       {user.lastLoginAt && (
-                        <span>🔐 {user.lastLoginAt?.toDate?.().toLocaleDateString('tr-TR') ||
-                          user.lastLoginAt?.toLocaleDateString?.('tr-TR') ||
-                          'Hiç giriş yapmamış'}</span>
+                        <span>🔐 {user.lastLoginAt.toLocaleDateString('tr-TR')}</span>
                       )}
                     </div>
                   </div>
@@ -215,24 +229,24 @@ const AdminUsers = () => {
 
                 {/* Kontroller */}
                 <div className="flex items-center space-x-4">
-                  {/* Departman */}
+                  {/* Departman (DÜZELTME: 'onChange' ve 'onBlur' eklendi) */}
                   <div className="w-32">
                     <input
                       type="text"
                       value={user.department || ''}
-                      onChange={(e) => updateUserDepartment(user.id, e.target.value)}
-                      onBlur={(e) => updateUserDepartment(user.id, e.target.value)}
+                      onChange={(e) => handleDepartmentChange(user.user_id, e.target.value)}
+                      onBlur={(e) => handleDepartmentBlur(user.user_id, e.target.value)}
                       placeholder="Departman"
                       className="w-full px-3 py-1 border border-gray-300 dark:border-gray-600 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                      disabled={updatingUser === user.id}
+                      disabled={updatingUser === user.user_id}
                     />
                   </div>
 
-                  {/* Rol Seçimi */}
+                  {/* Rol Seçimi (DÜZELTME: 'id' -> 'user_id') */}
                   <select
                     value={user.role || 'user'}
-                    onChange={(e) => updateUserRole(user.id, e.target.value)}
-                    disabled={updatingUser === user.id || user.id === userData.id}
+                    onChange={(e) => updateUserRole(user.user_id, e.target.value)}
+                    disabled={updatingUser === user.user_id || user.user_id === userData.user_id}
                     className="px-3 py-1 border border-gray-300 dark:border-gray-600 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                   >
                     <option value="user">Kullanıcı</option>
@@ -246,7 +260,7 @@ const AdminUsers = () => {
                   </span>
 
                   {/* Yükleme Göstergesi */}
-                  {updatingUser === user.id && (
+                  {updatingUser === user.user_id && (
                     <LoadingSpinner size="small" />
                   )}
                 </div>
