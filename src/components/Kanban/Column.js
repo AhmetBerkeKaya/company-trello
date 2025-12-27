@@ -4,7 +4,6 @@ import api from '../../api/axios';
 import { useAuth } from '../../contexts/AuthContext';
 import DraggableTask from './Task';
 
-// DÜZELTME: 'TaskComponent' prop'u kaldırıldı
 const Column = ({ column, projectId, onTaskUpdate, userRole, currentUserId }) => {
   const { userData } = useAuth();
   const [isAddingTask, setIsAddingTask] = useState(false);
@@ -14,6 +13,9 @@ const Column = ({ column, projectId, onTaskUpdate, userRole, currentUserId }) =>
   const [loadingMembers, setLoadingMembers] = useState(false);
 
   const canAddTask = userRole === 'admin' || userRole === 'manager';
+  
+  // YENİ: Sütun kilitli mi?
+  const isLocked = column.is_locked;
 
   useEffect(() => {
     if (isAddingTask && projectId && canAddTask) {
@@ -21,7 +23,6 @@ const Column = ({ column, projectId, onTaskUpdate, userRole, currentUserId }) =>
     }
   }, [isAddingTask, projectId, canAddTask]);
 
-  // fetchProjectMembers (API'ye bağlı - Değişiklik yok)
   const fetchProjectMembers = async () => {
     try {
       setLoadingMembers(true);
@@ -34,7 +35,6 @@ const Column = ({ column, projectId, onTaskUpdate, userRole, currentUserId }) =>
     }
   };
 
-  // handleAddTask (API'ye bağlı - Değişiklik yok)
   const handleAddTask = async () => {
     if (!newTaskTitle.trim()) return;
     try {
@@ -53,27 +53,70 @@ const Column = ({ column, projectId, onTaskUpdate, userRole, currentUserId }) =>
     }
   };
 
+  // YENİ: Sütun Silme Fonksiyonu
+  const handleDeleteColumn = async () => {
+    if (!window.confirm(`"${column.title}" sütununu ve içindeki tüm görevleri silmek istediğinize emin misiniz?`)) return;
+
+    try {
+      await api.delete(`/columns/${column.id}`);
+      onTaskUpdate(); // Board'u yenile
+    } catch (error) {
+      alert('Sütun silinemedi: ' + (error.response?.data?.message || error.message));
+    }
+  };
+
   return (
-    <div className="w-full">
-      {/* Column Header (Değişiklik yok) */}
-      <div className="flex justify-between items-center mb-4 p-2 bg-white dark:bg-gray-700 rounded-lg shadow-sm">
-        <h3 className="font-semibold text-gray-700 dark:text-gray-300 text-sm md:text-base">
-          {column.title} <span className="text-gray-500 dark:text-gray-400">({column.tasks.length})</span>
-        </h3>
-        {canAddTask && (
-          <button
-            onClick={() => setIsAddingTask(true)}
-            className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 text-lg p-1"
-            title="Yeni görev ekle"
-          >
-            +
-          </button>
-        )}
+    <div className="w-full flex flex-col h-full">
+      {/* HEADER KISMI
+         isLocked ise: Mavi/Koyu arka plan, silme butonu YOK.
+         Değilse: Gri/Beyaz arka plan, silme butonu VAR.
+      */}
+      <div className={`flex justify-between items-center mb-3 p-3 rounded-t-lg shadow-sm border-b-2 
+        ${isLocked 
+          ? 'bg-blue-50 dark:bg-blue-900/40 border-blue-200 dark:border-blue-800' 
+          : 'bg-white dark:bg-gray-700 border-gray-200 dark:border-gray-600'
+        }`}
+      >
+        <div className="flex items-center gap-2">
+          {/* Kilit İkonu (Opsiyonel görsel detay) */}
+          {isLocked && <span className="text-blue-500 text-xs">🔒</span>}
+          
+          <h3 className={`font-bold text-sm md:text-base ${isLocked ? 'text-blue-700 dark:text-blue-100' : 'text-gray-700 dark:text-gray-200'}`}>
+            {column.title} 
+            <span className="ml-2 text-xs font-normal opacity-70">({column.tasks.length})</span>
+          </h3>
+        </div>
+
+        <div className="flex items-center gap-1">
+           {/* Silme Butonu (Sadece Kilitli Değilse ve Yöneticiyse) */}
+           {!isLocked && (userRole === 'admin' || userRole === 'manager') && (
+            <button 
+              onClick={handleDeleteColumn}
+              className="text-gray-400 hover:text-red-500 p-1 transition-colors"
+              title="Sütunu Sil"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+            </button>
+          )}
+
+          {canAddTask && (
+            <button
+              onClick={() => setIsAddingTask(true)}
+              className={`text-lg p-1 w-6 h-6 flex items-center justify-center rounded hover:bg-black/5 
+                ${isLocked ? 'text-blue-600 dark:text-blue-300' : 'text-gray-500 dark:text-gray-400'}`}
+              title="Yeni görev ekle"
+            >
+              +
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* Yeni Görev Ekleme Formu (Değişiklik yok) */}
+      {/* Yeni Görev Formu (Aynı) */}
       {isAddingTask && canAddTask && (
-        <div className="mb-3 p-3 bg-white dark:bg-gray-700 rounded-lg shadow border border-gray-200 dark:border-gray-600">
+        <div className="mb-3 mx-1 p-3 bg-white dark:bg-gray-700 rounded-lg shadow-lg border border-blue-200 dark:border-blue-900 z-10">
           <input
             type="text"
             value={newTaskTitle}
@@ -84,9 +127,6 @@ const Column = ({ column, projectId, onTaskUpdate, userRole, currentUserId }) =>
           />
           {(userRole === 'admin' || userRole === 'manager') && (
             <div className="mb-2">
-              <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">
-                Atanan Kişi:
-              </label>
               <select
                 value={newTaskAssignee}
                 onChange={(e) => setNewTaskAssignee(e.target.value)}
@@ -108,7 +148,7 @@ const Column = ({ column, projectId, onTaskUpdate, userRole, currentUserId }) =>
           <div className="flex space-x-2">
             <button
               onClick={handleAddTask}
-              className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-1 px-3 rounded text-sm transition-colors"
+              className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-1 px-3 rounded text-sm"
             >
               Ekle
             </button>
@@ -117,7 +157,7 @@ const Column = ({ column, projectId, onTaskUpdate, userRole, currentUserId }) =>
                 setIsAddingTask(false);
                 setNewTaskAssignee('');
               }}
-              className="flex-1 bg-gray-300 hover:bg-gray-400 dark:bg-gray-600 dark:hover:bg-gray-500 text-gray-700 dark:text-gray-300 py-1 px-3 rounded text-sm transition-colors"
+              className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 py-1 px-3 rounded text-sm"
             >
               İptal
             </button>
@@ -125,10 +165,10 @@ const Column = ({ column, projectId, onTaskUpdate, userRole, currentUserId }) =>
         </div>
       )}
 
-      {/* Görev Listesi (DÜZELTME: <TaskComponent> yerine <Task> kullan) */}
-      <div className="space-y-3 min-h-[100px]">
+      {/* Görev Listesi (CSS düzenlendi) */}
+      <div className="flex-1 space-y-2 overflow-y-auto px-1 min-h-[50px]">
         {column.tasks.map(task => (
-          <DraggableTask // YENİ: 'Task' (Task.js'ten import edilen) component'i render ediyoruz
+          <DraggableTask
             key={task.id}
             task={task}
             onUpdate={onTaskUpdate}
@@ -138,9 +178,8 @@ const Column = ({ column, projectId, onTaskUpdate, userRole, currentUserId }) =>
         ))}
 
         {column.tasks.length === 0 && !isAddingTask && (
-          <div className="text-center text-gray-400 dark:text-gray-500 text-sm py-6 bg-white dark:bg-gray-700 rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-600">
-            📝<br />
-            Görev yok
+          <div className="h-full flex flex-col items-center justify-center text-gray-400 dark:text-gray-600 text-xs py-4 opacity-50">
+            <span>Boş</span>
           </div>
         )}
       </div>

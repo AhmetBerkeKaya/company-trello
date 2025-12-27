@@ -2,21 +2,23 @@
 const pool = require('../db');
 const { PROJECT_TYPES } = require('../utils/constants'); 
 
-// GET /api/projects (Bu, bir önceki adımdan beri aynı)
+// GET /api/projects
 exports.getMyProjects = async (req, res) => {
   const userId = req.user.userId;
+  const companyId = req.user.companyId; // Token'dan gelen şirket ID
 
   try {
+    // Sadece kullanıcının KENDİ ŞİRKETİNE ait projeleri getiriyoruz
     const query = `
       SELECT p.*, c.name AS company_name
       FROM projects p
       JOIN project_users pu ON p.project_id = pu.project_id
       LEFT JOIN companies c ON p.company_id = c.company_id
-      WHERE pu.user_id = $1
+      WHERE pu.user_id = $1 AND p.company_id = $2
       ORDER BY p.created_at DESC
     `;
     
-    const { rows } = await pool.query(query, [userId]);
+    const { rows } = await pool.query(query, [userId, companyId]);
     
     const projects = rows.map(p => ({
       ...p,
@@ -30,12 +32,12 @@ exports.getMyProjects = async (req, res) => {
   }
 };
 
-// POST /api/projects (DÜZELTİLDİ)
+// POST /api/projects
 exports.createProject = async (req, res) => {
   const {
     title,
     description,
-    company, 
+    // company, // GÜVENLİK: Bunu artık body'den almıyoruz!
     projectType,
     members, 
     projectManager, 
@@ -45,6 +47,8 @@ exports.createProject = async (req, res) => {
   } = req.body;
 
   const createdByUserId = req.user.userId;
+  const companyId = req.user.companyId; // GÜVENLİK: Şirket ID'si token'dan alınır
+  
   const selectedType = PROJECT_TYPES[projectType];
   if (!selectedType) {
     return res.status(400).json({ message: 'Geçersiz proje tipi' });
@@ -55,27 +59,22 @@ exports.createProject = async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    // ADIM A: Proje Kodu Üretme (DÜZELTİLDİ)
-    // 'FOR UPDATE' bir 'aggregate' (COUNT) ile kullanılamaz.
-    // Bu yüzden, o tipteki tüm proje SATIRLARINI seçip KİLİTLİYORUZ...
+    // ADIM A: Proje Kodu Üretme (Şirkete özel sayım yapılmalı)
     const codeQuery = `
       SELECT project_id 
       FROM projects 
-      WHERE project_type = $1
+      WHERE project_type = $1 AND company_id = $2
       FOR UPDATE
     `;
-    const codeRes = await client.query(codeQuery, [projectType]);
+    const codeRes = await client.query(codeQuery, [projectType, companyId]);
     
-    // ...ve sonra o satırların SAYISINI alıyoruz.
     const projectCount = codeRes.rows.length + 1; 
 
-    // ... (Geri kalan kod (sıra no, yıl, kod üretme) aynı) ...
     const year = new Date().getFullYear();
     const sequence = projectCount.toString().padStart(3, '0');
     const projectCode = `${selectedType.prefix}-${year}-${sequence}`;
 
     // ADIM B: 'projects' tablosuna ekle
-    // (Bu sorgu bir önceki adımdan beri aynı, zaten doğruydu)
     const projectInsertQuery = `
       INSERT INTO projects (
         name, description, company_id, project_type, project_code, 
@@ -83,10 +82,11 @@ exports.createProject = async (req, res) => {
       )
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       RETURNING * `;
+    
     const projectRes = await client.query(projectInsertQuery, [
       title,
       description,
-      company || null, 
+      companyId, // Token'dan gelen ID
       projectType, 
       projectCode, 
       projectManager, 
@@ -98,7 +98,18 @@ exports.createProject = async (req, res) => {
     
     const newProject = projectRes.rows[0];
     const newProjectId = newProject.project_id;
-
+    const defaultColumns = [
+      { title: 'Yapılacaklar', order: 0 },
+      { title: 'Devam Eden', order: 1 },
+      { title: 'Tamamlandı', order: 2 }
+    ];
+    for (const col of defaultColumns) {
+      await client.query(
+        `INSERT INTO project_columns (project_id, title, order_index, is_locked)
+         VALUES ($1, $2, $3, $4)`,
+        [newProjectId, col.title, col.order, true] // true = Kilitli
+      );
+    }
     // ADIM C: 'project_users' tablosuna üyeleri ekle
     const allMemberIds = [...new Set([...members, projectManager])];
     
@@ -111,10 +122,8 @@ exports.createProject = async (req, res) => {
       await client.query(memberInsertQuery);
     }
 
-    // ADIM D: Transaction'ı onayla
     await client.query('COMMIT');
 
-    // ADIM E: React'a yeni projeyi yolla
     res.status(201).json({
       ...newProject,
       id: newProjectId
@@ -122,28 +131,28 @@ exports.createProject = async (req, res) => {
 
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('Proje oluşturma hatası (ROLLBACK):', error);
+    console.error('Proje oluşturma hatası:', error);
     res.status(500).json({ message: 'Sunucu hatası, proje oluşturulamadı' });
   } finally {
     client.release();
   }
 };
 
-// YENİ: GET /api/projects/:projectId
-// (Tek bir projenin detayını getirir)
+// GET /api/projects/:projectId
 exports.getProjectById = async (req, res) => {
   const { projectId } = req.params;
-  const userId = req.user.userId; // Giriş yapan kullanıcı
+  const userId = req.user.userId;
+  const companyId = req.user.companyId;
 
   try {
-    // Projeyi ve firma adını çek
+    // GÜVENLİK: Proje ID'si doğru olsa bile, kullanıcının şirketine ait değilse getirme!
     const projectQuery = `
       SELECT p.*, c.name AS company_name
       FROM projects p
       LEFT JOIN companies c ON p.company_id = c.company_id
-      WHERE p.project_id = $1
+      WHERE p.project_id = $1 AND p.company_id = $2
     `;
-    const projectRes = await pool.query(projectQuery, [projectId]);
+    const projectRes = await pool.query(projectQuery, [projectId, companyId]);
 
     if (projectRes.rows.length === 0) {
       return res.status(404).json({ message: 'Proje bulunamadı' });
@@ -151,27 +160,22 @@ exports.getProjectById = async (req, res) => {
 
     const project = projectRes.rows[0];
 
-    // YETKİ KONTROLÜ (React kodundakiyle aynı)
-    // Bu projenin üyelerini çek
+    // Üye kontrolü
     const memberQuery = `SELECT user_id FROM project_users WHERE project_id = $1`;
     const memberRes = await pool.query(memberQuery, [projectId]);
     const memberIds = memberRes.rows.map(row => row.user_id);
 
-    // Eğer giriş yapan kullanıcı bu üye listesinde DEĞİLSE, reddet
-    if (!memberIds.includes(userId)) {
+    if (!memberIds.includes(userId) && req.user.role !== 'admin') {
       return res.status(403).json({ message: 'Bu projeyi görüntüleme yetkiniz yok' });
     }
     
-    // React'ın beklediği 'members' dizisini ekle
     project.members = memberIds;
-
-    // React'a 'id' formatında da yolla
     project.id = project.project_id;
 
     res.status(200).json(project);
     
   } catch (error) {
-    console.error('Proje detayı getirme hatası:', error);
+    console.error('Proje detayı hatası:', error);
     res.status(500).json({ message: 'Sunucu hatası' });
   }
 };
@@ -179,30 +183,38 @@ exports.getProjectById = async (req, res) => {
 // GET /api/projects/:projectId/members
 exports.getProjectMembers = async (req, res) => {
   const { projectId } = req.params;
+  const companyId = req.user.companyId;
+
   try {
+    // Sadece şirketin kullanıcılarını getir (Ekstra güvenlik)
     const query = `
       SELECT u.user_id, u.name, u.email, u.role, u.department
       FROM users u
       JOIN project_users pu ON u.user_id = pu.user_id
-      WHERE pu.project_id = $1
+      JOIN projects p ON pu.project_id = p.project_id
+      WHERE pu.project_id = $1 AND p.company_id = $2
     `;
-    const { rows } = await pool.query(query, [projectId]);
+    const { rows } = await pool.query(query, [projectId, companyId]);
     const members = rows.map(m => ({ ...m, id: m.user_id }));
     res.status(200).json(members);
   } catch (error) {
-    console.error('Proje üyelerini getirme hatası:', error);
+    console.error('Proje üyeleri hatası:', error);
     res.status(500).json({ message: 'Sunucu hatası' });
   }
 };
 
-// (Projenin görev istatistiklerini getirir)
+// GET /api/projects/:projectId/stats
 exports.getProjectStats = async (req, res) => {
   const { projectId } = req.params;
+  const companyId = req.user.companyId;
 
   try {
-    // 'tasks' tablosundaki görevleri say
-    // Bu sorgu, tüm görevleri çekip (React'taki gibi)
-    // sonra JavaScript'te filtrelemekten çok daha hızlıdır.
+    // Önce projenin şirkete ait olup olmadığını kontrol et
+    const checkQuery = 'SELECT 1 FROM projects WHERE project_id = $1 AND company_id = $2';
+    const checkRes = await pool.query(checkQuery, [projectId, companyId]);
+    
+    if (checkRes.rows.length === 0) return res.status(404).json({message: 'Proje bulunamadı'});
+
     const query = `
       SELECT
         COUNT(*) AS total_tasks,
@@ -214,7 +226,6 @@ exports.getProjectStats = async (req, res) => {
     `;
     const { rows } = await pool.query(query, [projectId]);
     
-    // Veriyi React'ın beklediği formata (küçük harf) çevir
     const stats = {
         totalTasks: parseInt(rows[0].total_tasks, 10),
         completedTasks: parseInt(rows[0].completed_tasks, 10),
@@ -224,18 +235,23 @@ exports.getProjectStats = async (req, res) => {
 
     res.status(200).json(stats);
   } catch (error) {
-    console.error('Proje istatistikleri getirme hatası:', error);
+    console.error('İstatistik hatası:', error);
     res.status(500).json({ message: 'Sunucu hatası' });
   }
 };
 
-// YENİ: GET /api/projects/:projectId/tasks
-// (Bir projeye ait tüm görevleri Kanban Board için getirir)
+// GET /api/projects/:projectId/tasks
 exports.getTasksForProject = async (req, res) => {
   const { projectId } = req.params;
+  const companyId = req.user.companyId;
 
   try {
-    // Projeye ait tüm görevleri çek (React kodundaki 'fetchTasks' sorgusu)
+    // Güvenlik kontrolü: Proje bu şirkete mi ait?
+    const checkQuery = 'SELECT 1 FROM projects WHERE project_id = $1 AND company_id = $2';
+    const checkRes = await pool.query(checkQuery, [projectId, companyId]);
+    
+    if (checkRes.rows.length === 0) return res.status(404).json({message: 'Proje bulunamadı'});
+
     const query = `
       SELECT * FROM tasks 
       WHERE project_id = $1 
@@ -243,7 +259,6 @@ exports.getTasksForProject = async (req, res) => {
     `;
     const { rows } = await pool.query(query, [projectId]);
 
-    // React'ın 'id' formatına alışkın olması için 'task_id'yi 'id'ye kopyala
     const tasks = rows.map(task => ({
       ...task,
       id: task.task_id
@@ -251,31 +266,29 @@ exports.getTasksForProject = async (req, res) => {
     
     res.status(200).json(tasks);
   } catch (error) {
-    console.error('Projeye ait görevleri getirme hatası:', error);
+    console.error('Görev listesi hatası:', error);
     res.status(500).json({ message: 'Sunucu hatası' });
   }
 };
 
-
-// YENİ: PUT /api/projects/:projectId/status
-// (Proje durumunu günceller - Ayarlar sekmesi)
+// PUT /api/projects/:projectId/status
 exports.updateProjectStatus = async (req, res) => {
   const { projectId } = req.params;
-  const { status } = req.body; // 'active', 'on-hold', 'completed'
-  const { userId, role } = req.user;
+  const { status } = req.body; 
+  const { userId, role, companyId } = req.user;
 
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
 
-    // YETKİ KONTROLÜ (ProjectDetail.js'teki 'canEditProject' kuralı)
+    // Sadece kendi şirketindeki projeyi güncelleyebilir
     const projectQuery = `
       SELECT created_by_user_id 
       FROM projects 
-      WHERE project_id = $1 
+      WHERE project_id = $1 AND company_id = $2
       FOR UPDATE
     `;
-    const projectRes = await client.query(projectQuery, [projectId]);
+    const projectRes = await client.query(projectQuery, [projectId, companyId]);
 
     if (projectRes.rows.length === 0) {
       await client.query('ROLLBACK');
@@ -290,8 +303,6 @@ exports.updateProjectStatus = async (req, res) => {
       return res.status(403).json({ message: 'Proje durumunu değiştirme yetkiniz yok' });
     }
 
-    // Yetkisi varsa, GÜNCELLE
-    // 'completed' ise 'completed_at' zamanını da ayarla
     const completedAt = (status === 'completed') ? 'NOW()' : null;
     
     const updateQuery = `
@@ -314,26 +325,30 @@ exports.updateProjectStatus = async (req, res) => {
     
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('Proje durumu güncelleme hatası:', error);
+    console.error('Güncelleme hatası:', error);
     res.status(500).json({ message: 'Sunucu hatası' });
   } finally {
     client.release();
   }
 };
 
-// YENİ: DELETE /api/projects/:projectId
-// (Projeyi siler - Ayarlar sekmesi)
+// DELETE /api/projects/:projectId
 exports.deleteProject = async (req, res) => {
   const { projectId } = req.params;
-  const { userId, role } = req.user;
+  const { userId, role, companyId } = req.user;
 
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     
-    // YETKİ KONTROLÜ (ProjectDetail.js'teki kural: admin veya proje sahibi)
-    const projectQuery = `SELECT created_by_user_id FROM projects WHERE project_id = $1 FOR UPDATE`;
-    const projectRes = await client.query(projectQuery, [projectId]);
+    // Şirket kontrolü
+    const projectQuery = `
+        SELECT created_by_user_id 
+        FROM projects 
+        WHERE project_id = $1 AND company_id = $2 
+        FOR UPDATE
+    `;
+    const projectRes = await client.query(projectQuery, [projectId, companyId]);
 
     if (projectRes.rows.length === 0) {
       await client.query('ROLLBACK');
@@ -348,51 +363,49 @@ exports.deleteProject = async (req, res) => {
       return res.status(403).json({ message: 'Bu projeyi silme yetkiniz yok' });
     }
     
-    // Yetkisi varsa, SİL
-    // Veritabanını 'ON DELETE CASCADE' ile kurduğumuz için,
-    // bu projeyi sildiğimizde buna bağlı tüm 'project_users',
-    // 'tasks', 'comments' ve 'files' kayıtları da
-    // OTOMATİK OLARAK SİLİNECEKTİR.
     await client.query('DELETE FROM projects WHERE project_id = $1', [projectId]);
     
     await client.query('COMMIT');
     
-    res.status(204).send(); // Başarılı, içerik yok
+    res.status(204).send(); 
     
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('Proje silme hatası:', error);
+    console.error('Silme hatası:', error);
     res.status(500).json({ message: 'Sunucu hatası' });
   } finally {
     client.release();
   }
 };
 
-
-// PUT /api/projects/:projectId/members (DÜZELTİLDİ: 'null' filtresi)
+// PUT /api/projects/:projectId/members
 exports.updateProjectMembers = async (req, res) => {
   const { projectId } = req.params;
   const { members, projectManager } = req.body;
-  const { userId: updaterId, role } = req.user;
+  const { userId: updaterId, role, companyId } = req.user;
 
-  // DÜZELTME: 'null' veya 'undefined' değerleri filtrele
   const allMemberIds = [...new Set([...members, projectManager])]
-                          .filter(id => id != null); // '!= null' hem null hem undefined'ı yakalar
+                          .filter(id => id != null);
 
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
 
-    // 1. Yetki kontrolü (sadece admin veya o projenin yöneticisi)
-    const projectQuery = `SELECT project_manager FROM projects WHERE project_id = $1 FOR UPDATE`;
-    const projectRes = await client.query(projectQuery, [projectId]);
+    // Şirket kontrolü
+    const projectQuery = `
+        SELECT project_manager 
+        FROM projects 
+        WHERE project_id = $1 AND company_id = $2 
+        FOR UPDATE
+    `;
+    const projectRes = await client.query(projectQuery, [projectId, companyId]);
+    
     if (projectRes.rows.length === 0) {
       await client.query('ROLLBACK');
       return res.status(404).json({ message: 'Proje bulunamadı' });
     }
     
     const project = projectRes.rows[0];
-    // DÜZELTME: Kural 'Proje Sahibi' değil, 'Proje Yöneticisi' olmalı
     const canEdit = role === 'admin' || project.project_manager === updaterId;
 
     if (!canEdit) {
@@ -400,26 +413,23 @@ exports.updateProjectMembers = async (req, res) => {
       return res.status(403).json({ message: 'Proje üyelerini düzenleme yetkiniz yok' });
     }
 
-    // 2. Mevcut tüm üyeleri sil
     await client.query('DELETE FROM project_users WHERE project_id = $1', [projectId]);
 
-    // 3. Yeni üye listesini ekle (Filtrelenmiş liste)
     if (allMemberIds.length > 0) {
       const memberValues = allMemberIds.map(userId => `('${projectId}', '${userId}')`).join(',');
       const participantQuery = `
         INSERT INTO project_users (project_id, user_id)
         VALUES ${memberValues}
       `;
-      await client.query(participantQuery); // HATA BURADA OLUŞUYORDU
+      await client.query(participantQuery);
     }
 
     await client.query('COMMIT');
-    
     res.status(200).json(allMemberIds);
     
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('Proje üye güncelleme hatası:', error);
+    console.error('Üye güncelleme hatası:', error);
     res.status(500).json({ message: 'Sunucu hatası' });
   } finally {
     client.release();

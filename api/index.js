@@ -15,7 +15,7 @@ const companyRoutes = require('./routes/companyRoutes'); // YENİ
 const fileRoutes = require('./routes/fileRoutes'); // YENİ
 const notificationRoutes = require('./routes/notificationRoutes'); // YENİ
 const meetingRequestRoutes = require('./routes/meetingRequestRoutes');
-
+const columnRoutes = require('./routes/columnRoutes');
 
 const app = express();
 const port = process.env.API_PORT || 5000;
@@ -26,6 +26,7 @@ app.use(express.json());
 
 // --- YENİ ---
 // Ana API Rotaları
+app.use('/api', columnRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/projects', projectRoutes); // YENİ
 app.use('/api/meetings', meetingRoutes); // YENİ
@@ -35,7 +36,6 @@ app.use('/api/companies', companyRoutes); // YENİ
 app.use('/api/files', fileRoutes); // YENİ
 app.use('/api/notifications', notificationRoutes); // YENİ
 app.use('/api/meeting-requests', meetingRequestRoutes); // YENİ
-
 
 // Basit bir test yolu
 app.get('/api', (req, res) => {

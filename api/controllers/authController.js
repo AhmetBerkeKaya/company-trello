@@ -4,7 +4,6 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
 exports.loginUser = async (req, res) => {
-  // 1. React'tan gelen email ve password'ü al
   const { email, password } = req.body;
 
   if (!email || !password) {
@@ -12,53 +11,66 @@ exports.loginUser = async (req, res) => {
   }
 
   try {
-    // 2. Veritabanında bu email'e sahip kullanıcıyı bul
-    const userResult = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+    // 1. Kullanıcıyı VE Şirket durumunu sorgula
+    // JOIN kullanarak kullanıcının bağlı olduğu şirketin aktif olup olmadığını da kontrol ediyoruz.
+    const query = `
+      SELECT u.*, c.is_active as company_is_active, c.subscription_plan 
+      FROM users u
+      JOIN companies c ON u.company_id = c.company_id
+      WHERE u.email = $1
+    `;
+    
+    const userResult = await pool.query(query, [email]);
 
-    // 3. Kullanıcı var mı?
     if (userResult.rows.length === 0) {
-      return res.status(401).json({ message: 'auth/user-not-found' }); // React kodunla uyumlu hata
+      return res.status(401).json({ message: 'auth/user-not-found' });
     }
 
     const user = userResult.rows[0];
 
-    // 4. Şifre doğru mu? (Gelen şifre ile hash'lenmiş şifreyi karşılaştır)
+    // 2. Şirket Aktif mi Kontrolü (SaaS Güvenliği)
+    if (user.company_is_active === false) {
+      return res.status(403).json({ message: 'Şirket hesabınız askıya alınmıştır. Lütfen yöneticiyle iletişime geçin.' });
+    }
+
+    // 3. Şifre Kontrolü
     const isMatch = await bcrypt.compare(password, user.password_hash);
 
     if (!isMatch) {
-      return res.status(401).json({ message: 'auth/wrong-password' }); // React kodunla uyumlu hata
+      return res.status(401).json({ message: 'auth/wrong-password' });
     }
 
-    // 5. Şifre doğruysa, AuthContext'teki 'lastLoginAt' güncellemesini yap
-    // (Bunu arka planda yap, kullanıcının beklemesine gerek yok)
+    // 4. Son giriş zamanını güncelle
     pool.query(
       'UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE user_id = $1',
       [user.user_id]
     );
 
-    // 6. Kullanıcıya özel bir JWT (Token) oluştur
-    // Bu token, kullanıcının "kimlik kartı" olacak
+    // 5. Token Oluştur (İçine Şirket Kimliğini de Gömüyoruz!)
     const payload = {
       userId: user.user_id,
       email: user.email,
-      name: user.name,  // YENİ
-      role: user.role   // YENİ
+      name: user.name,
+      role: user.role,
+      companyId: user.company_id // KRİTİK EKLEME: Artık her istekte şirket ID'si taşınacak
     };
 
     const token = jwt.sign(
       payload,
       process.env.JWT_SECRET,
-      { expiresIn: '3d' } // Token 3 gün geçerli olsun
+      { expiresIn: '3d' }
     );
 
-    // 7. React'a (AuthContext'e) token'ı ve kullanıcı bilgilerini gönder
-    // Not: Asla şifre hash'ini geri gönderme!
+    // 6. Response Hazırla (Hassas verileri temizle)
     delete user.password_hash;
     
     res.status(200).json({
       message: 'Giriş başarılı',
       token: token,
-      userData: user // AuthContext'teki 'userData' state'i için
+      userData: {
+        ...user,
+        subscriptionPlan: user.subscription_plan // Frontend'de özellikleri kısıtlamak için kullanabiliriz
+      }
     });
 
   } catch (error) {

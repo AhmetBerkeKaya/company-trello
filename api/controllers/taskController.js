@@ -1,23 +1,24 @@
 // api/controllers/taskController.js
 const pool = require('../db');
 const { PROJECT_TYPES } = require('../utils/constants');
-const { createNotification } = require('../utils/notificationService'); // YENİ
-
+const { createNotification } = require('../utils/notificationService');
 
 // GET /api/tasks/my
-// (Atananı 'ben' olan görevleri getirir)
 exports.getMyTasks = async (req, res) => {
   const userId = req.user.userId;
+  const companyId = req.user.companyId;
 
   try {
-    // Dashboard.js'teki 'assignee == userData.id' sorgusu
+    // JOIN İLE GÜVENLİK:
+    // Sadece kullanıcının şirketine ait projelerdeki görevleri getir
     const query = `
-      SELECT * FROM tasks
-      WHERE assignee_user_id = $1
-      ORDER BY created_at DESC
+      SELECT t.* FROM tasks t
+      JOIN projects p ON t.project_id = p.project_id
+      WHERE t.assignee_user_id = $1 AND p.company_id = $2
+      ORDER BY t.created_at DESC
     `;
     
-    const { rows } = await pool.query(query, [userId]);
+    const { rows } = await pool.query(query, [userId, companyId]);
     
     res.status(200).json(rows);
   } catch (error) {
@@ -25,13 +26,22 @@ exports.getMyTasks = async (req, res) => {
     res.status(500).json({ message: 'Sunucu hatası' });
   }
 };
-// POST /api/tasks (YENİ: Bildirim eklendi)
+
+// POST /api/tasks
 exports.createTask = async (req, res) => {
   const { title, status, projectId, assignee } = req.body;
-  const { userId: createdByUserId, name: createdByName } = req.user;
+  const { userId: createdByUserId, name: createdByName, companyId } = req.user;
   const finalAssignee = assignee || createdByUserId;
 
   try {
+    // 1. GÜVENLİK KONTROLÜ: Görev eklenen proje bu şirkete mi ait?
+    const checkQuery = 'SELECT 1 FROM projects WHERE project_id = $1 AND company_id = $2';
+    const checkRes = await pool.query(checkQuery, [projectId, companyId]);
+
+    if (checkRes.rows.length === 0) {
+      return res.status(403).json({ message: 'Bu projeye görev ekleme yetkiniz yok' });
+    }
+
     const query = `
       INSERT INTO tasks (title, description, status, project_id, assignee_user_id, created_by_user_id)
       VALUES ($1, $2, $3, $4, $5, $6)
@@ -43,10 +53,8 @@ exports.createTask = async (req, res) => {
 
     const newTask = { ...rows[0], id: rows[0].task_id };
 
-    // --- YENİ BİLDİRİM MANTIĞI ---
-    // Eğer görevi oluşturan kişi, atanan kişiden farklıysa, atanan kişiye bildir
     if (finalAssignee !== createdByUserId) {
-      await createNotification(null, { // Transaction'da değiliz, 'null' yolla
+      await createNotification(null, {
         userId: finalAssignee,
         type: 'task_assigned',
         title: `Yeni Görev: ${title}`,
@@ -58,7 +66,6 @@ exports.createTask = async (req, res) => {
         link: `/projects/${projectId}`
       });
     }
-    // --- BİLDİRİM SONU ---
     
     res.status(201).json(newTask);
   } catch (error) {
@@ -67,23 +74,25 @@ exports.createTask = async (req, res) => {
   }
 };
 
-// PUT /api/tasks/:taskId (YENİ: Bildirim eklendi)
+// PUT /api/tasks/:taskId
 exports.updateTaskDetails = async (req, res) => {
   const { taskId } = req.params;
   const { title, description, assignee: newAssignee, dueDate } = req.body;
-  const { userId: updaterId, name: updaterName, role } = req.user;
+  const { userId: updaterId, name: updaterName, role, companyId } = req.user;
 
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     
+    // GÜVENLİK: Proje üzerinden şirket kontrolü
     const taskQuery = `
-      SELECT created_by_user_id, assignee_user_id 
-      FROM tasks 
-      WHERE task_id = $1 
-      FOR UPDATE
+      SELECT t.created_by_user_id, t.assignee_user_id, t.project_id
+      FROM tasks t
+      JOIN projects p ON t.project_id = p.project_id
+      WHERE t.task_id = $1 AND p.company_id = $2
+      FOR UPDATE OF t
     `;
-    const taskRes = await client.query(taskQuery, [taskId]);
+    const taskRes = await client.query(taskQuery, [taskId, companyId]);
 
     if (taskRes.rows.length === 0) {
       await client.query('ROLLBACK');
@@ -115,10 +124,8 @@ exports.updateTaskDetails = async (req, res) => {
     ]);
     const updatedTask = updateRes.rows[0];
 
-    // --- YENİ BİLDİRİM MANTIĞI ---
-    // 1. Atanan kişi değiştiyse YENİ atanan kişiye bildir
     if (newAssignee && newAssignee !== oldAssignee && newAssignee !== updaterId) {
-      await createNotification(client, { // Transaction içindeyiz, 'client' yolla
+      await createNotification(client, {
         userId: newAssignee,
         type: 'task_assigned',
         title: `Görev Atandı: ${title}`,
@@ -130,7 +137,6 @@ exports.updateTaskDetails = async (req, res) => {
         link: `/projects/${updatedTask.project_id}`
       });
     } 
-    // 2. Atanan kişi değişmediyse AMA hala varsa ve güncelleyen kişi değilse, 'güncellendi' diye bildir
     else if (newAssignee && newAssignee === oldAssignee && newAssignee !== updaterId) {
        await createNotification(client, {
           userId: newAssignee,
@@ -144,36 +150,38 @@ exports.updateTaskDetails = async (req, res) => {
           link: `/projects/${updatedTask.project_id}`
        });
     }
-    // --- BİLDİRİM SONU ---
     
     await client.query('COMMIT');
     res.status(200).json({ ...updatedTask, id: updatedTask.task_id });
     
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('Görev detay güncelleme hatası:', error);
+    console.error('Görev güncelleme hatası:', error);
     res.status(500).json({ message: 'Sunucu hatası' });
   } finally {
     client.release();
   }
 };
 
-// PUT /api/tasks/:taskId/status (YENİ: Bildirim eklendi)
+// PUT /api/tasks/:taskId/status
 exports.updateTaskStatus = async (req, res) => {
   const { taskId } = req.params;
   const { status } = req.body;
-  const { userId, name, role } = req.user;
+  const { userId, name, role, companyId } = req.user;
 
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    
+    // GÜVENLİK: Proje üzerinden şirket kontrolü
     const taskQuery = `
-      SELECT assignee_user_id, title, project_id 
-      FROM tasks 
-      WHERE task_id = $1 
-      FOR UPDATE
+      SELECT t.assignee_user_id, t.title, t.project_id 
+      FROM tasks t
+      JOIN projects p ON t.project_id = p.project_id
+      WHERE t.task_id = $1 AND p.company_id = $2
+      FOR UPDATE OF t
     `;
-    const taskRes = await client.query(taskQuery, [taskId]);
+    const taskRes = await client.query(taskQuery, [taskId, companyId]);
 
     if (taskRes.rows.length === 0) {
       await client.query('ROLLBACK');
@@ -197,8 +205,6 @@ exports.updateTaskStatus = async (req, res) => {
     `;
     const updateRes = await client.query(updateQuery, [status, taskId]);
     
-    // --- YENİ BİLDİRİM MANTIĞI ---
-    // Eğer sürükleyen kişi, atanan kişi değilse, atanan kişiye bildir
     if (task.assignee_user_id && task.assignee_user_id !== userId) {
       await createNotification(client, {
         userId: task.assignee_user_id,
@@ -212,38 +218,37 @@ exports.updateTaskStatus = async (req, res) => {
         link: `/projects/${task.project_id}`
       });
     }
-    // --- BİLDİRİM SONU ---
 
     await client.query('COMMIT');
     res.status(200).json({ ...updateRes.rows[0], id: updateRes.rows[0].task_id });
 
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('Görev durumu güncelleme hatası:', error);
+    console.error('Görev durumu hatası:', error);
     res.status(500).json({ message: 'Sunucu hatası' });
   } finally {
     client.release();
   }
 };
 
-
-// api/controllers/taskController.js
+// DELETE /api/tasks/:taskId
 exports.deleteTask = async (req, res) => {
   const { taskId } = req.params;
-  const { userId, role, name: deleterName } = req.user;
+  const { userId, role, name: deleterName, companyId } = req.user;
 
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     
-    // 1. Görevi al (yetki kontrolü VE bildirim için)
+    // GÜVENLİK: Proje üzerinden şirket kontrolü
     const taskQuery = `
-      SELECT created_by_user_id, assignee_user_id, title, project_id 
-      FROM tasks 
-      WHERE task_id = $1 
-      FOR UPDATE
+      SELECT t.created_by_user_id, t.assignee_user_id, t.title, t.project_id 
+      FROM tasks t
+      JOIN projects p ON t.project_id = p.project_id
+      WHERE t.task_id = $1 AND p.company_id = $2
+      FOR UPDATE OF t
     `;
-    const taskRes = await client.query(taskQuery, [taskId]);
+    const taskRes = await client.query(taskQuery, [taskId, companyId]);
 
     if (taskRes.rows.length === 0) {
       await client.query('ROLLBACK');
@@ -258,10 +263,6 @@ exports.deleteTask = async (req, res) => {
       return res.status(403).json({ message: 'Bu görevi silme yetkiniz yok' });
     }
 
-    // ----- BAŞLANGIÇ: MANTIKSAL DÜZELTME -----
-    // ÖNCE BİLDİRİMİ GÖNDER, SONRA SİL.
-    
-    // 2. Bildirim Mantiği (Silmeden Hemen Önce)
     if (task.assignee_user_id && task.assignee_user_id !== userId) { 
       await createNotification(client, {
         userId: task.assignee_user_id,
@@ -269,9 +270,6 @@ exports.deleteTask = async (req, res) => {
         title: `Görev Silindi: ${task.title}`,
         message: `${deleterName}, size atanmış olan "${task.title}" başlıklı görevi sildi.`,
         projectId: task.project_id,
-        // Dikkat: Linki '/projects/...' olarak bırakıyoruz, ancak
-        // bildirim eklendiği AN task_id HÂLÂ 'tasks' tablosunda olduğu için
-        // 'foreign key' hatası almayacağız.
         taskId: taskId, 
         senderId: userId,
         senderName: deleterName,
@@ -279,19 +277,13 @@ exports.deleteTask = async (req, res) => {
       });
     }
 
-    // 3. Görevi SİL
-    // 'ON DELETE CASCADE' kuralları yorumları ve dosyaları da silecektir.
     await client.query('DELETE FROM tasks WHERE task_id = $1', [taskId]);
     
-    // ----- BİTİŞ: MANTIKSAL DÜZELTME -----
-
     await client.query('COMMIT');
     
-    res.status(204).send(); // Başarılı
+    res.status(204).send();
     
   } catch (error) {
-    // Hata createNotification'dan gelse bile (ki gelmemeli),
-    // ROLLBACK tüm işlemi (silme dahil) geri alacaktır.
     await client.query('ROLLBACK');
     console.error('Görev silme hatası:', error);
     res.status(500).json({ message: 'Sunucu hatası' });
