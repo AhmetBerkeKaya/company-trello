@@ -18,7 +18,7 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
   const [theme, setTheme] = useState('light');
 
-  // 1. LOGIN (Değişmedi)
+  // 1. LOGIN (GÜNCELLENDİ: Return eklendi)
   const login = async (email, password) => {
     try {
       const response = await api.post('/auth/login', { email, password });
@@ -35,6 +35,9 @@ export function AuthProvider({ children }) {
         setTheme(userData.theme);
         updateHtmlTheme(userData.theme);
       }
+      
+      // KRİTİK NOKTA: Login.js'de rol kontrolü yapabilmek için veriyi geri döndürüyoruz
+      return response.data; 
 
     } catch (error) {
       console.error('Login error:', error);
@@ -45,7 +48,7 @@ export function AuthProvider({ children }) {
     }
   };
 
-  // 2. LOGOUT (Değişmedi)
+  // 2. LOGOUT
   const logout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('userData');
@@ -54,7 +57,7 @@ export function AuthProvider({ children }) {
     return Promise.resolve();
   };
 
-  // 3. OTURUM KONTROLÜ (Değişmedi)
+  // 3. OTURUM KONTROLÜ
   useEffect(() => {
     // Tema kontrolü (localStorage'dan)
     const savedTheme = localStorage.getItem('theme') || 'light';
@@ -85,47 +88,43 @@ export function AuthProvider({ children }) {
     setLoading(false);
   }, []);
 
-  // --- YENİ EKLENEN/GÜNCELLENEN FONKSİYONLAR ---
+  // --- YARDIMCI FONKSİYONLAR ---
 
-  // YENİ: updateUserData (Profile.js için)
+  // updateUserData (Profile.js için)
   const updateUserData = async (updatedData) => {
     try {
-      // API'ye yolla
       const response = await api.put('/users/me/profile', updatedData);
       
-      // Başarılı olursa, dönen güncel kullanıcı verisiyle
-      // state'i ve localStorage'ı güncelle
       const newUserData = response.data;
       setUserData(newUserData);
-      setCurrentUser(newUserData); // currentUser'ı da güncelle
+      setCurrentUser(newUserData); 
       localStorage.setItem('userData', JSON.stringify(newUserData));
       
       return true;
     } catch (error) {
       console.error('Profil güncelleme hatası (AuthContext):', error);
-      throw error; // Hatayı Profile.js'e geri fırlat
+      throw error;
     }
   };
 
-  // YENİ: changePassword (Profile.js için)
+  // changePassword (Profile.js için)
   const changePassword = async (currentPassword, newPassword) => {
     try {
       await api.put('/users/me/password', { currentPassword, newPassword });
       return true;
     } catch (error) {
       console.error('Şifre değiştirme hatası (AuthContext):', error);
-      throw error; // Hatayı Profile.js'e geri fırlat
+      throw error;
     }
   };
 
-  // YENİ: updateNotificationSettings (Profile.js için)
+  // updateNotificationSettings (Profile.js için)
   const updateNotificationSettings = async (settings) => {
     try {
       const response = await api.put('/users/me/settings', { 
         notificationSettings: settings 
       });
       
-      // Dönen güncel 'notification_settings' ile state'i güncelle
       const newSettings = response.data.notification_settings;
       const updatedUserData = { ...userData, notification_settings: newSettings };
       
@@ -139,7 +138,7 @@ export function AuthProvider({ children }) {
     }
   };
 
-  // YENİ: toggleTheme (Profile.js ve Navbar.js için)
+  // toggleTheme (Profile.js ve Navbar.js için)
   const toggleTheme = async (newTheme) => {
     const themeToSet = newTheme || (theme === 'light' ? 'dark' : 'light');
     
@@ -149,12 +148,12 @@ export function AuthProvider({ children }) {
     updateHtmlTheme(themeToSet);
 
     try {
-      // 2. API'ye (veritabanı) kaydet
+      // 2. API'ye kaydet
       await api.put('/users/me/settings', { 
         theme: themeToSet 
       });
       
-      // 3. 'userData' state'ini de güncelle
+      // 3. 'userData' state'ini güncelle
       const updatedUserData = { ...userData, theme: themeToSet };
       setUserData(updatedUserData);
       localStorage.setItem('userData', JSON.stringify(updatedUserData));
@@ -162,12 +161,10 @@ export function AuthProvider({ children }) {
       return true;
     } catch (error) {
       console.error('Tema değiştirme hatası (AuthContext):', error);
-      // Hata olursa (örn: API kapalıysa) arayüz değişikliğini geri alma
-      // (Kullanıcı deneyimi için arayüzde kalsın)
     }
   };
 
-  // YENİ: HTML tag'ine 'dark' class'ı ekleyen yardımcı fonksiyon
+  // HTML tag'ine 'dark' class'ı ekleyen yardımcı fonksiyon
   const updateHtmlTheme = (themeName) => {
     if (themeName === 'dark') {
       document.documentElement.classList.add('dark');
@@ -176,17 +173,15 @@ export function AuthProvider({ children }) {
     }
   };
 
-  // SİLİNDİ: register (Artık kullanılmıyor)
-
   const value = {
     currentUser,
     userData,
     login,
     logout,
-    changePassword,             // Artık çalışıyor
-    updateUserData,             // Artık çalışıyor
-    updateNotificationSettings, // Artık çalışıyor
-    toggleTheme,                // Artık çalışıyor
+    changePassword,
+    updateUserData,
+    updateNotificationSettings,
+    toggleTheme,
     theme,
     loading
   };

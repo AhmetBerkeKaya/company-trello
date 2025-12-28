@@ -213,7 +213,7 @@ const Meetings = () => {
 
           {/* Butonlar */}
           <div className="flex space-x-2">
-            {userData?.role === 'user' && (
+            {userData?.role === 'user' || userData?.role === 'client' && (
               <button
                 onClick={handleCreateMeetingRequest}
                 className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center space-x-2"

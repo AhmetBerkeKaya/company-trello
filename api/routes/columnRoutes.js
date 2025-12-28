@@ -4,18 +4,25 @@ const router = express.Router();
 const columnController = require('../controllers/columnController');
 const authMiddleware = require('../middleware/authMiddleware');
 
-// Projeye ait sütunları getir
-router.get('/projects/:projectId/columns', authMiddleware, columnController.getColumns);
+// DİKKAT: Artık URL yapımız /phases/:phaseId/columns şeklinde olacak.
+// Bu dosya index.js'de nasıl çağrıldığına bağlı olarak değişebilir ama 
+// en temiz yöntem burayı "mergeParams: true" yapmaktır veya direkt full path vermektir.
 
-// Yeni sütun ekle
-router.post('/projects/:projectId/columns', authMiddleware, columnController.createColumn);
+// 1. Bir fazdaki sütunları getir
+router.get('/phases/:phaseId/columns', authMiddleware, columnController.getColumns);
 
-// Sütun güncelle (İsim)
+// 2. Faza yeni sütun ekle
+router.post('/phases/:phaseId/columns', authMiddleware, columnController.createColumn);
+
+// 3. Sütun sıralamasını güncelle (Phase ID gerekli)
+router.put('/phases/:phaseId/columns/reorder', authMiddleware, columnController.reorderColumns);
+
+// --- Aşağıdakiler ID bazlı olduğu için path değişmedi ---
+
+// 4. Sütun adı güncelle
 router.put('/columns/:columnId', authMiddleware, columnController.updateColumn);
 
-// Sütun sil
+// 5. Sütun sil
 router.delete('/columns/:columnId', authMiddleware, columnController.deleteColumn);
-
-router.put('/projects/:projectId/columns/reorder', authMiddleware, columnController.reorderColumns);
 
 module.exports = router;

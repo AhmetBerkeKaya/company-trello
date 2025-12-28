@@ -1,6 +1,5 @@
 // api/controllers/taskController.js
 const pool = require('../db');
-const { PROJECT_TYPES } = require('../utils/constants');
 const { createNotification } = require('../utils/notificationService');
 
 // GET /api/tasks/my
@@ -9,8 +8,6 @@ exports.getMyTasks = async (req, res) => {
   const companyId = req.user.companyId;
 
   try {
-    // JOIN İLE GÜVENLİK:
-    // Sadece kullanıcının şirketine ait projelerdeki görevleri getir
     const query = `
       SELECT t.* FROM tasks t
       JOIN projects p ON t.project_id = p.project_id
@@ -27,10 +24,9 @@ exports.getMyTasks = async (req, res) => {
   }
 };
 
-// POST /api/tasks (GÜNCELLENDİ: Pinleme Desteği)
+// POST /api/tasks (Müşteri Görünürlüğü Eklendi)
 exports.createTask = async (req, res) => {
-  // planFileId, pinX, pinY parametrelerini ekledik
-  const { title, status, projectId, assignee, planFileId, pinX, pinY } = req.body;
+  const { title, status, projectId, assignee, planFileId, pinX, pinY, isVisibleToClient } = req.body;
   const { userId: createdByUserId, name: createdByName } = req.user;
   const finalAssignee = assignee || createdByUserId;
 
@@ -38,28 +34,28 @@ exports.createTask = async (req, res) => {
     const query = `
       INSERT INTO tasks (
         title, description, status, project_id, assignee_user_id, created_by_user_id,
-        plan_file_id, pin_x, pin_y
+        plan_file_id, pin_x, pin_y, is_visible_to_client
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       RETURNING *
     `;
     
-    // Eğer plan üzerinde değilse (Listeden ekleniyorsa) planFileId, pinX, pinY null gelir, sorun olmaz.
     const { rows } = await pool.query(query, [
       title, 
-      '', // Description boş
+      '', // Açıklama başlangıçta boş
       status, 
       projectId, 
       finalAssignee, 
       createdByUserId,
       planFileId || null, 
       pinX || null, 
-      pinY || null
+      pinY || null,
+      isVisibleToClient || false // Varsayılan: Müşteri göremez
     ]);
 
     const newTask = { ...rows[0], id: rows[0].task_id };
 
-    // Bildirim Mantığı (Aynı)
+    // Bildirim Gönderimi
     if (finalAssignee !== createdByUserId) {
       await createNotification(null, {
         userId: finalAssignee,
@@ -81,17 +77,17 @@ exports.createTask = async (req, res) => {
   }
 };
 
-// PUT /api/tasks/:taskId
+// PUT /api/tasks/:taskId (Detay ve Müşteri Görünürlüğü Güncelleme)
 exports.updateTaskDetails = async (req, res) => {
   const { taskId } = req.params;
-  const { title, description, assignee: newAssignee, dueDate } = req.body;
+  const { title, description, assignee: newAssignee, dueDate, isVisibleToClient } = req.body;
   const { userId: updaterId, name: updaterName, role, companyId } = req.user;
 
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     
-    // GÜVENLİK: Proje üzerinden şirket kontrolü
+    // GÜVENLİK: Proje ve Şirket Kontrolü
     const taskQuery = `
       SELECT t.created_by_user_id, t.assignee_user_id, t.project_id
       FROM tasks t
@@ -109,6 +105,7 @@ exports.updateTaskDetails = async (req, res) => {
     const task = taskRes.rows[0];
     const oldAssignee = task.assignee_user_id;
 
+    // Sadece Admin, Manager veya Görevi Oluşturan düzenleyebilir
     const canEdit = role === 'admin' || role === 'manager' || task.created_by_user_id === updaterId;
     if (!canEdit) {
       await client.query('ROLLBACK');
@@ -122,15 +119,17 @@ exports.updateTaskDetails = async (req, res) => {
         description = $2, 
         assignee_user_id = $3, 
         due_date = $4,
+        is_visible_to_client = COALESCE($5, is_visible_to_client), -- Null gelirse eskisini koru
         updated_at = NOW()
-      WHERE task_id = $5 
+      WHERE task_id = $6 
       RETURNING *
     `;
     const updateRes = await client.query(updateQuery, [
-      title, description, newAssignee || null, dueDate || null, taskId
+      title, description, newAssignee || null, dueDate || null, isVisibleToClient, taskId
     ]);
     const updatedTask = updateRes.rows[0];
 
+    // Atama Bildirimleri
     if (newAssignee && newAssignee !== oldAssignee && newAssignee !== updaterId) {
       await createNotification(client, {
         userId: newAssignee,
@@ -144,19 +143,6 @@ exports.updateTaskDetails = async (req, res) => {
         link: `/projects/${updatedTask.project_id}`
       });
     } 
-    else if (newAssignee && newAssignee === oldAssignee && newAssignee !== updaterId) {
-       await createNotification(client, {
-          userId: newAssignee,
-          type: 'task_updated',
-          title: `Görev Güncellendi: ${title}`,
-          message: `${updaterName} atandığınız bir görevi güncelledi.`,
-          projectId: updatedTask.project_id,
-          taskId: taskId,
-          senderId: updaterId,
-          senderName: updaterName,
-          link: `/projects/${updatedTask.project_id}`
-       });
-    }
     
     await client.query('COMMIT');
     res.status(200).json({ ...updatedTask, id: updatedTask.task_id });
@@ -170,11 +156,10 @@ exports.updateTaskDetails = async (req, res) => {
   }
 };
 
-// PUT /api/tasks/:taskId/location (YENİ: Pin Taşıma)
+// PUT /api/tasks/:taskId/location (Pin Taşıma - Değişmedi)
 exports.updateTaskLocation = async (req, res) => {
   const { taskId } = req.params;
   const { pinX, pinY } = req.body;
-  const { userId, role } = req.user;
 
   try {
     const query = `
@@ -194,7 +179,7 @@ exports.updateTaskLocation = async (req, res) => {
   }
 };
 
-// PUT /api/tasks/:taskId/status
+// PUT /api/tasks/:taskId/status (Sütun Değiştirme - Değişmedi)
 exports.updateTaskStatus = async (req, res) => {
   const { taskId } = req.params;
   const { status } = req.body;
@@ -204,7 +189,6 @@ exports.updateTaskStatus = async (req, res) => {
   try {
     await client.query('BEGIN');
     
-    // GÜVENLİK: Proje üzerinden şirket kontrolü
     const taskQuery = `
       SELECT t.assignee_user_id, t.title, t.project_id 
       FROM tasks t
@@ -236,6 +220,7 @@ exports.updateTaskStatus = async (req, res) => {
     `;
     const updateRes = await client.query(updateQuery, [status, taskId]);
     
+    // Bildirim
     if (task.assignee_user_id && task.assignee_user_id !== userId) {
       await createNotification(client, {
         userId: task.assignee_user_id,
@@ -262,7 +247,7 @@ exports.updateTaskStatus = async (req, res) => {
   }
 };
 
-// DELETE /api/tasks/:taskId
+// DELETE /api/tasks/:taskId (Silme - Değişmedi)
 exports.deleteTask = async (req, res) => {
   const { taskId } = req.params;
   const { userId, role, name: deleterName, companyId } = req.user;
@@ -271,7 +256,6 @@ exports.deleteTask = async (req, res) => {
   try {
     await client.query('BEGIN');
     
-    // GÜVENLİK: Proje üzerinden şirket kontrolü
     const taskQuery = `
       SELECT t.created_by_user_id, t.assignee_user_id, t.title, t.project_id 
       FROM tasks t
@@ -311,7 +295,6 @@ exports.deleteTask = async (req, res) => {
     await client.query('DELETE FROM tasks WHERE task_id = $1', [taskId]);
     
     await client.query('COMMIT');
-    
     res.status(204).send();
     
   } catch (error) {
@@ -322,3 +305,36 @@ exports.deleteTask = async (req, res) => {
     client.release();
   }
 };
+
+// GET /api/projects/:projectId/tasks (GÜNCELLENDİ: Müşteri Filtresi!)
+// projectController.js'den buraya taşınmadıysa bile, oradaki mantığı buraya taşıman mantıklı olabilir
+// veya projectController'daki getTasksForProject fonksiyonunu güncellemelisin.
+// Bu fonksiyon taskController'da yoksa, projectController'daki fonksiyonu güncellemelisin.
+// NOT: Genelde /api/projects/:id/tasks rotası projectController'a gider. 
+// Eğer öyleyse projectController.js'deki getTasksForProject'i şu şekilde güncellemen gerekir:
+
+/*
+exports.getTasksForProject = async (req, res) => {
+  const { projectId } = req.params;
+  const { companyId, role } = req.user;
+
+  try {
+    const checkQuery = 'SELECT 1 FROM projects WHERE project_id = $1 AND company_id = $2';
+    const checkRes = await pool.query(checkQuery, [projectId, companyId]);
+    if (checkRes.rows.length === 0) return res.status(404).json({message: 'Proje bulunamadı'});
+
+    let query = `SELECT * FROM tasks WHERE project_id = $1`;
+    
+    // GÜVENLİK: Eğer kullanıcı 'client' ise, sadece ona açık görevleri getir
+    if (role === 'client') {
+       query += ` AND is_visible_to_client = true`;
+    }
+
+    query += ` ORDER BY created_at ASC`;
+
+    const { rows } = await pool.query(query, [projectId]);
+    const tasks = rows.map(task => ({ ...task, id: task.task_id }));
+    res.status(200).json(tasks);
+  } catch (error) { ... }
+};
+*/

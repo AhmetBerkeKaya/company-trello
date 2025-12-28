@@ -16,6 +16,7 @@ const fileRoutes = require('./routes/fileRoutes'); // YENİ
 const notificationRoutes = require('./routes/notificationRoutes'); // YENİ
 const meetingRequestRoutes = require('./routes/meetingRequestRoutes');
 const columnRoutes = require('./routes/columnRoutes');
+const phaseRoutes = require('./routes/phaseRoutes');
 
 const app = express();
 const port = process.env.API_PORT || 5000;
@@ -36,6 +37,9 @@ app.use('/api/companies', companyRoutes); // YENİ
 app.use('/api/files', fileRoutes); // YENİ
 app.use('/api/notifications', notificationRoutes); // YENİ
 app.use('/api/meeting-requests', meetingRequestRoutes); // YENİ
+app.use('/api', columnRoutes);
+app.use('/api', phaseRoutes);
+app.use('/api/phases', phaseRoutes);
 
 // Basit bir test yolu
 app.get('/api', (req, res) => {

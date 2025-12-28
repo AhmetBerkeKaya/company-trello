@@ -5,20 +5,19 @@ const { PROJECT_TYPES } = require('../utils/constants');
 // GET /api/projects
 exports.getMyProjects = async (req, res) => {
   const userId = req.user.userId;
-  const companyId = req.user.companyId; // Token'dan gelen şirket ID
+  const companyId = req.user.companyId;
 
   try {
-    // Sadece kullanıcının KENDİ ŞİRKETİNE ait projeleri getiriyoruz
     const query = `
       SELECT p.*, c.name AS company_name
       FROM projects p
       JOIN project_users pu ON p.project_id = pu.project_id
       LEFT JOIN companies c ON p.company_id = c.company_id
-      WHERE pu.user_id = $1 AND p.company_id = $2
+      WHERE pu.user_id = $1
       ORDER BY p.created_at DESC
     `;
     
-    const { rows } = await pool.query(query, [userId, companyId]);
+    const { rows } = await pool.query(query, [userId]);
     
     const projects = rows.map(p => ({
       ...p,
@@ -37,7 +36,7 @@ exports.createProject = async (req, res) => {
   const {
     title,
     description,
-    // company, // GÜVENLİK: Bunu artık body'den almıyoruz!
+    company, 
     projectType,
     members, 
     projectManager, 
@@ -47,7 +46,7 @@ exports.createProject = async (req, res) => {
   } = req.body;
 
   const createdByUserId = req.user.userId;
-  const companyId = req.user.companyId; // GÜVENLİK: Şirket ID'si token'dan alınır
+  const companyId = req.user.companyId; 
   
   const selectedType = PROJECT_TYPES[projectType];
   if (!selectedType) {
@@ -59,7 +58,6 @@ exports.createProject = async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    // ADIM A: Proje Kodu Üretme (Şirkete özel sayım yapılmalı)
     const codeQuery = `
       SELECT project_id 
       FROM projects 
@@ -69,12 +67,10 @@ exports.createProject = async (req, res) => {
     const codeRes = await client.query(codeQuery, [projectType, companyId]);
     
     const projectCount = codeRes.rows.length + 1; 
-
     const year = new Date().getFullYear();
     const sequence = projectCount.toString().padStart(3, '0');
     const projectCode = `${selectedType.prefix}-${year}-${sequence}`;
 
-    // ADIM B: 'projects' tablosuna ekle
     const projectInsertQuery = `
       INSERT INTO projects (
         name, description, company_id, project_type, project_code, 
@@ -86,7 +82,7 @@ exports.createProject = async (req, res) => {
     const projectRes = await client.query(projectInsertQuery, [
       title,
       description,
-      companyId, // Token'dan gelen ID
+      company, // Gelen company ID'yi kullanıyoruz (SaaS/Admin panelinden seçilen)
       projectType, 
       projectCode, 
       projectManager, 
@@ -98,6 +94,17 @@ exports.createProject = async (req, res) => {
     
     const newProject = projectRes.rows[0];
     const newProjectId = newProject.project_id;
+
+    // Fazları oluştur (PhaseController.js yapısına uygun olarak varsayılan faz eklenebilir ama 
+    // senin kodunda createProject içinde manuel column ekleme var. 
+    // Faz sistemine tam geçiş yaptıysak buraya 'Genel Yönetim' fazı eklenmeli.)
+    
+    // YENİ: Varsayılan 'Genel Yönetim' Fazı
+    const phaseQuery = `INSERT INTO project_phases (project_id, name, type, order_index) VALUES ($1, 'Genel Yönetim', 'general', 0) RETURNING phase_id`;
+    const phaseRes = await client.query(phaseQuery, [newProjectId]);
+    const defaultPhaseId = phaseRes.rows[0].phase_id;
+
+    // Sütunları bu faza bağla
     const defaultColumns = [
       { title: 'Yapılacaklar', order: 0 },
       { title: 'Devam Eden', order: 1 },
@@ -105,29 +112,21 @@ exports.createProject = async (req, res) => {
     ];
     for (const col of defaultColumns) {
       await client.query(
-        `INSERT INTO project_columns (project_id, title, order_index, is_locked)
-         VALUES ($1, $2, $3, $4)`,
-        [newProjectId, col.title, col.order, true] // true = Kilitli
+        `INSERT INTO project_columns (project_id, phase_id, title, order_index, is_locked)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [newProjectId, defaultPhaseId, col.title, col.order, true] 
       );
     }
-    // ADIM C: 'project_users' tablosuna üyeleri ekle
+
     const allMemberIds = [...new Set([...members, projectManager])];
-    
     if (allMemberIds.length > 0) {
       const memberValues = allMemberIds.map(userId => `('${newProjectId}', '${userId}')`).join(',');
-      const memberInsertQuery = `
-        INSERT INTO project_users (project_id, user_id)
-        VALUES ${memberValues}
-      `;
-      await client.query(memberInsertQuery);
+      await client.query(`INSERT INTO project_users (project_id, user_id) VALUES ${memberValues}`);
     }
 
     await client.query('COMMIT');
 
-    res.status(201).json({
-      ...newProject,
-      id: newProjectId
-    });
+    res.status(201).json({ ...newProject, id: newProjectId });
 
   } catch (error) {
     await client.query('ROLLBACK');
@@ -145,31 +144,29 @@ exports.getProjectById = async (req, res) => {
   const companyId = req.user.companyId;
 
   try {
-    // GÜVENLİK: Proje ID'si doğru olsa bile, kullanıcının şirketine ait değilse getirme!
     const projectQuery = `
-      SELECT p.*, c.name AS company_name
+      SELECT p.*, c.name AS company_name,
+             EXISTS(SELECT 1 FROM project_users pu WHERE pu.project_id = p.project_id AND pu.user_id = $1) as is_member
       FROM projects p
       LEFT JOIN companies c ON p.company_id = c.company_id
-      WHERE p.project_id = $1 AND p.company_id = $2
+      WHERE p.project_id = $2
     `;
-    const projectRes = await pool.query(projectQuery, [projectId, companyId]);
+    const projectRes = await pool.query(projectQuery, [userId, projectId]);
 
     if (projectRes.rows.length === 0) {
       return res.status(404).json({ message: 'Proje bulunamadı' });
     }
 
     const project = projectRes.rows[0];
+    const hasAccess = (project.company_id === companyId) || project.is_member || req.user.role === 'admin';
 
-    // Üye kontrolü
-    const memberQuery = `SELECT user_id FROM project_users WHERE project_id = $1`;
-    const memberRes = await pool.query(memberQuery, [projectId]);
-    const memberIds = memberRes.rows.map(row => row.user_id);
-
-    if (!memberIds.includes(userId) && req.user.role !== 'admin') {
+    if (!hasAccess) {
       return res.status(403).json({ message: 'Bu projeyi görüntüleme yetkiniz yok' });
     }
-    
-    project.members = memberIds;
+
+    const memberQuery = `SELECT user_id FROM project_users WHERE project_id = $1`;
+    const memberRes = await pool.query(memberQuery, [projectId]);
+    project.members = memberRes.rows.map(row => row.user_id);
     project.id = project.project_id;
 
     res.status(200).json(project);
@@ -183,18 +180,14 @@ exports.getProjectById = async (req, res) => {
 // GET /api/projects/:projectId/members
 exports.getProjectMembers = async (req, res) => {
   const { projectId } = req.params;
-  const companyId = req.user.companyId;
-
   try {
-    // Sadece şirketin kullanıcılarını getir (Ekstra güvenlik)
     const query = `
       SELECT u.user_id, u.name, u.email, u.role, u.department
       FROM users u
       JOIN project_users pu ON u.user_id = pu.user_id
-      JOIN projects p ON pu.project_id = p.project_id
-      WHERE pu.project_id = $1 AND p.company_id = $2
+      WHERE pu.project_id = $1
     `;
-    const { rows } = await pool.query(query, [projectId, companyId]);
+    const { rows } = await pool.query(query, [projectId]);
     const members = rows.map(m => ({ ...m, id: m.user_id }));
     res.status(200).json(members);
   } catch (error) {
@@ -203,34 +196,76 @@ exports.getProjectMembers = async (req, res) => {
   }
 };
 
-// GET /api/projects/:projectId/stats
+// GET /api/projects/:projectId/stats (GÜNCELLENDİ: Müşteriye Tam Analiz)
 exports.getProjectStats = async (req, res) => {
   const { projectId } = req.params;
+  const userId = req.user.userId;
   const companyId = req.user.companyId;
 
   try {
-    // Önce projenin şirkete ait olup olmadığını kontrol et
-    const checkQuery = 'SELECT 1 FROM projects WHERE project_id = $1 AND company_id = $2';
-    const checkRes = await pool.query(checkQuery, [projectId, companyId]);
-    
-    if (checkRes.rows.length === 0) return res.status(404).json({message: 'Proje bulunamadı'});
-
-    const query = `
-      SELECT
-        COUNT(*) AS total_tasks,
-        COUNT(CASE WHEN status = 'done' OR status = 'completed' THEN 1 END) AS completed_tasks,
-        COUNT(CASE WHEN status = 'inProgress' THEN 1 END) AS in_progress_tasks,
-        COUNT(CASE WHEN status = 'todo' THEN 1 END) AS todo_tasks
-      FROM tasks
-      WHERE project_id = $1
+    const accessQuery = `
+        SELECT company_id, 
+        EXISTS(SELECT 1 FROM project_users WHERE project_id = projects.project_id AND user_id = $1) as is_member
+        FROM projects WHERE project_id = $2
     `;
-    const { rows } = await pool.query(query, [projectId]);
+    const accessRes = await pool.query(accessQuery, [userId, projectId]);
     
+    if (accessRes.rows.length === 0) return res.status(404).json({message: 'Proje bulunamadı'});
+    
+    const p = accessRes.rows[0];
+    if (p.company_id !== companyId && !p.is_member && req.user.role !== 'admin') {
+        return res.status(403).json({ message: 'Erişim yetkiniz yok' });
+    }
+
+    // İSTATİSTİK SORGUSU: Müşteri olsa bile TÜM görevleri sayıyoruz.
+    // 'clientFilter' KALDIRILDI.
+    
+    const phasesQuery = `
+      SELECT
+        pp.phase_id,
+        pp.name AS phase_name,
+        
+        COUNT(t.task_id) AS total_tasks,
+
+        COUNT(CASE 
+            WHEN (pc.title ILIKE '%Tamam%' OR pc.title ILIKE '%Bit%' OR pc.title ILIKE '%Done%' OR t.status = 'completed') 
+            THEN 1 ELSE NULL 
+        END) AS completed_tasks,
+
+        COUNT(CASE 
+            WHEN (pc.title ILIKE '%Devam%' OR pc.title ILIKE '%Sür%' OR pc.title ILIKE '%Progress%' OR t.status = 'inProgress') 
+            THEN 1 ELSE NULL 
+        END) AS in_progress_tasks,
+
+        COUNT(CASE 
+            WHEN (pc.title ILIKE '%Yap%' OR pc.title ILIKE '%Todo%' OR t.status = 'todo') 
+            THEN 1 ELSE NULL 
+        END) AS todo_tasks
+
+      FROM project_phases pp
+      LEFT JOIN project_columns pc ON pp.phase_id = pc.phase_id
+      LEFT JOIN tasks t ON t.status = pc.column_id::text AND t.project_id = $1
+      WHERE pp.project_id = $1
+      GROUP BY pp.phase_id, pp.name, pp.order_index
+      ORDER BY pp.order_index ASC
+    `;
+    
+    const { rows } = await pool.query(phasesQuery, [projectId]);
+    
+    let total = 0, completed = 0, inProgress = 0, todo = 0;
+    rows.forEach(row => {
+        total += parseInt(row.total_tasks);
+        completed += parseInt(row.completed_tasks);
+        inProgress += parseInt(row.in_progress_tasks);
+        todo += parseInt(row.todo_tasks);
+    });
+
     const stats = {
-        totalTasks: parseInt(rows[0].total_tasks, 10),
-        completedTasks: parseInt(rows[0].completed_tasks, 10),
-        inProgressTasks: parseInt(rows[0].in_progress_tasks, 10),
-        todoTasks: parseInt(rows[0].todo_tasks, 10)
+        totalTasks: total,
+        completedTasks: completed,
+        inProgressTasks: inProgress,
+        todoTasks: todo,
+        phaseStats: rows
     };
 
     res.status(200).json(stats);
@@ -243,20 +278,33 @@ exports.getProjectStats = async (req, res) => {
 // GET /api/projects/:projectId/tasks
 exports.getTasksForProject = async (req, res) => {
   const { projectId } = req.params;
+  const userId = req.user.userId;
   const companyId = req.user.companyId;
+  const userRole = req.user.role;
 
   try {
-    // Güvenlik kontrolü: Proje bu şirkete mi ait?
-    const checkQuery = 'SELECT 1 FROM projects WHERE project_id = $1 AND company_id = $2';
-    const checkRes = await pool.query(checkQuery, [projectId, companyId]);
-    
-    if (checkRes.rows.length === 0) return res.status(404).json({message: 'Proje bulunamadı'});
-
-    const query = `
-      SELECT * FROM tasks 
-      WHERE project_id = $1 
-      ORDER BY created_at ASC
+    const accessQuery = `
+        SELECT company_id, 
+        EXISTS(SELECT 1 FROM project_users WHERE project_id = projects.project_id AND user_id = $1) as is_member
+        FROM projects WHERE project_id = $2
     `;
+    const accessRes = await pool.query(accessQuery, [userId, projectId]);
+    
+    if (accessRes.rows.length === 0) return res.status(404).json({message: 'Proje bulunamadı'});
+    
+    const p = accessRes.rows[0];
+    if (p.company_id !== companyId && !p.is_member && userRole !== 'admin') {
+        return res.status(403).json({ message: 'Erişim yetkiniz yok' });
+    }
+
+    let query = `SELECT * FROM tasks WHERE project_id = $1`;
+    
+    // GÖREV LİSTESİNDE: Müşteri sadece kendine açık olanı görsün.
+    if (userRole === 'client') {
+        query += ` AND is_visible_to_client = true`;
+    }
+
+    query += ` ORDER BY created_at ASC`;
     const { rows } = await pool.query(query, [projectId]);
 
     const tasks = rows.map(task => ({
@@ -270,6 +318,7 @@ exports.getTasksForProject = async (req, res) => {
     res.status(500).json({ message: 'Sunucu hatası' });
   }
 };
+
 
 // PUT /api/projects/:projectId/status
 exports.updateProjectStatus = async (req, res) => {

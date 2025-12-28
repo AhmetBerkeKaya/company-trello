@@ -38,6 +38,7 @@ function App() {
                           <Customers />
                         </PrivateRoute>
                       } />
+                      
                     </Routes>
                   </div>
                 </PrivateRoute>

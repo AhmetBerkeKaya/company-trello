@@ -1,3 +1,4 @@
+// src/pages/Login.js
 import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
@@ -18,11 +19,17 @@ const Login = () => {
     setError('');
 
     try {
+      // 1. Giriş işlemini yap
       await login(email, password);
-      navigate('/');
+      
+      // 2. YÖNLENDİRME (GÜNCELLENDİ)
+      // Artık ayrım yok. Müşteri de olsa, personel de olsa ana akışa dahil oluyor.
+      // İçerik, kullanıcının rolüne göre (ProjectDetail vb. sayfalarda) kısıtlanacak.
+      navigate('/'); 
+
     } catch (error) {
       console.error('Giriş hatası:', error);
-      setError(getErrorMessage(error.code));
+      setError(getErrorMessage(error.code || 'auth/unknown'));
     } finally {
       setIsLoading(false);
     }
@@ -56,7 +63,7 @@ const Login = () => {
           <div className="text-center mb-6">
             <h3 className="text-lg font-semibold text-gray-900">Sisteme Giriş Yapın</h3>
             <p className="text-gray-600 text-sm mt-1">
-              Lütfen PROAEC hesabınızla giriş yapın
+              Lütfen hesap bilgilerinizle giriş yapın
             </p>
           </div>
 
