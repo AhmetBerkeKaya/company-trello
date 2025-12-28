@@ -27,32 +27,39 @@ exports.getMyTasks = async (req, res) => {
   }
 };
 
-// POST /api/tasks
+// POST /api/tasks (GÜNCELLENDİ: Pinleme Desteği)
 exports.createTask = async (req, res) => {
-  const { title, status, projectId, assignee } = req.body;
-  const { userId: createdByUserId, name: createdByName, companyId } = req.user;
+  // planFileId, pinX, pinY parametrelerini ekledik
+  const { title, status, projectId, assignee, planFileId, pinX, pinY } = req.body;
+  const { userId: createdByUserId, name: createdByName } = req.user;
   const finalAssignee = assignee || createdByUserId;
 
   try {
-    // 1. GÜVENLİK KONTROLÜ: Görev eklenen proje bu şirkete mi ait?
-    const checkQuery = 'SELECT 1 FROM projects WHERE project_id = $1 AND company_id = $2';
-    const checkRes = await pool.query(checkQuery, [projectId, companyId]);
-
-    if (checkRes.rows.length === 0) {
-      return res.status(403).json({ message: 'Bu projeye görev ekleme yetkiniz yok' });
-    }
-
     const query = `
-      INSERT INTO tasks (title, description, status, project_id, assignee_user_id, created_by_user_id)
-      VALUES ($1, $2, $3, $4, $5, $6)
+      INSERT INTO tasks (
+        title, description, status, project_id, assignee_user_id, created_by_user_id,
+        plan_file_id, pin_x, pin_y
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       RETURNING *
     `;
+    
+    // Eğer plan üzerinde değilse (Listeden ekleniyorsa) planFileId, pinX, pinY null gelir, sorun olmaz.
     const { rows } = await pool.query(query, [
-      title, '', status, projectId, finalAssignee, createdByUserId
+      title, 
+      '', // Description boş
+      status, 
+      projectId, 
+      finalAssignee, 
+      createdByUserId,
+      planFileId || null, 
+      pinX || null, 
+      pinY || null
     ]);
 
     const newTask = { ...rows[0], id: rows[0].task_id };
 
+    // Bildirim Mantığı (Aynı)
     if (finalAssignee !== createdByUserId) {
       await createNotification(null, {
         userId: finalAssignee,
@@ -160,6 +167,30 @@ exports.updateTaskDetails = async (req, res) => {
     res.status(500).json({ message: 'Sunucu hatası' });
   } finally {
     client.release();
+  }
+};
+
+// PUT /api/tasks/:taskId/location (YENİ: Pin Taşıma)
+exports.updateTaskLocation = async (req, res) => {
+  const { taskId } = req.params;
+  const { pinX, pinY } = req.body;
+  const { userId, role } = req.user;
+
+  try {
+    const query = `
+      UPDATE tasks 
+      SET pin_x = $1, pin_y = $2, updated_at = NOW()
+      WHERE task_id = $3
+      RETURNING *
+    `;
+    const { rows } = await pool.query(query, [pinX, pinY, taskId]);
+
+    if (rows.length === 0) return res.status(404).json({ message: 'Görev bulunamadı' });
+
+    res.status(200).json(rows[0]);
+  } catch (error) {
+    console.error('Pin taşıma hatası:', error);
+    res.status(500).json({ message: 'Sunucu hatası' });
   }
 };
 

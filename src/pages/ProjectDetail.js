@@ -5,6 +5,7 @@ import { useAuth } from '../contexts/AuthContext';
 import api from '../api/axios';
 import LoadingSpinner from '../components/UI/LoadingSpinner';
 import Board from '../components/Kanban/Board';
+import ViewerContainer from '../components/Viewer/ViewerContainer'; // YENİ
 
 const ProjectDetail = () => {
     const { projectId } = useParams();
@@ -49,7 +50,7 @@ const ProjectDetail = () => {
 
             const projectData = projectRes.data;
             const membersData = membersRes.data;
-            
+
             setProject(projectData);
             setProjectMembers(membersData);
 
@@ -69,16 +70,16 @@ const ProjectDetail = () => {
 
     // Sadece istatistikleri yenileyen fonksiyon (Board.js'e yollanacak)
     const refreshProjectStats = async () => {
-      if (!projectId) return;
-      setLoadingStats(true);
-      try {
-        const statsRes = await api.get(`/projects/${projectId}/stats`);
-        setProjectStats(statsRes.data);
-      } catch (error) {
-        console.error('Proje istatistikleri yenileme hatası:', error);
-      } finally {
-        setLoadingStats(false);
-      }
+        if (!projectId) return;
+        setLoadingStats(true);
+        try {
+            const statsRes = await api.get(`/projects/${projectId}/stats`);
+            setProjectStats(statsRes.data);
+        } catch (error) {
+            console.error('Proje istatistikleri yenileme hatası:', error);
+        } finally {
+            setLoadingStats(false);
+        }
     };
 
     // Proje düzenleme yetkisini ayarlar
@@ -100,11 +101,11 @@ const ProjectDetail = () => {
 
         try {
             const response = await api.put(`/projects/${projectId}/status`, {
-              status: newStatus
+                status: newStatus
             });
-            
+
             // DÜZELTME: API'den dönen güncel proje ile state'i GÜNCELLE
-            setProject(response.data); 
+            setProject(response.data);
 
             alert(`Proje durumu "${getStatusText(newStatus)}" olarak güncellendi!`);
         } catch (error) {
@@ -117,9 +118,9 @@ const ProjectDetail = () => {
     const handleCompleteProject = async () => {
         try {
             const response = await api.put(`/projects/${projectId}/status`, {
-              status: 'completed'
+                status: 'completed'
             });
-            
+
             setProject(response.data); // State'i güncelle
             setShowCompleteModal(false);
             alert('✅ Proje başarıyla tamamlandı olarak işaretlendi!');
@@ -141,7 +142,7 @@ const ProjectDetail = () => {
             alert('Proje silinirken hata oluştu: ' + (error.response?.data?.message || error.message));
         }
     };
-    
+
     // --- GÖRSEL FONKSİYONLAR (DEĞİŞMEDİ) ---
     const getStatusClass = (status) => {
         switch (status) {
@@ -197,7 +198,7 @@ const ProjectDetail = () => {
         );
     }
     if (!project) {
-        return null; 
+        return null;
     }
 
     // --- RENDER (ANA SAYFA) ---
@@ -252,14 +253,15 @@ const ProjectDetail = () => {
                     {[
                         { id: 'board', label: 'Kanban Board', icon: '📋' },
                         { id: 'overview', label: 'Genel Bakış', icon: '📊' },
+                        { id: 'viewer', label: 'Paftalar & Viewer', icon: '🗺️' }, // YENİ EKLENDİ
                         ...(canViewSettings ? [{ id: 'settings', label: 'Ayarlar', icon: '⚙️' }] : [])
                     ].map(tab => (
                         <button
                             key={tab.id}
                             onClick={() => setActiveTab(tab.id)}
                             className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === tab.id
-                                    ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                                    : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
+                                ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                                : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
                                 }`}
                         >
                             <span className="mr-2">{tab.icon}</span>
@@ -386,6 +388,9 @@ const ProjectDetail = () => {
             )}
 
             {/* Ayarlar Sekmesi (DÜZELTİLDİ: JSX Eklendi) */}
+            {activeTab === 'viewer' && (
+                <ViewerContainer projectId={projectId} />
+            )}
             {activeTab === 'settings' && canViewSettings && (
                 <div className="bg-white dark:bg-gray-800 rounded-lg shadow dark:shadow-gray-900/50 overflow-hidden">
                     <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
@@ -407,17 +412,17 @@ const ProjectDetail = () => {
                                         onClick={() => handleUpdateProjectStatus(status.value)}
                                         disabled={project.status === status.value || !canEditProject}
                                         className={`flex-1 p-4 border-2 rounded-lg text-center transition-colors ${project.status === status.value
-                                                ? status.value === 'active'
-                                                    ? 'border-green-500 bg-green-50 dark:bg-green-900/20'
-                                                    : status.value === 'on-hold'
-                                                        ? 'border-yellow-500 bg-yellow-50 dark:bg-yellow-900/20'
-                                                        : 'border-gray-500 bg-gray-50 dark:bg-gray-900/20'
-                                                : 'border-gray-300 dark:border-gray-600 hover:border-gray-400'
+                                            ? status.value === 'active'
+                                                ? 'border-green-500 bg-green-50 dark:bg-green-900/20'
+                                                : status.value === 'on-hold'
+                                                    ? 'border-yellow-500 bg-yellow-50 dark:bg-yellow-900/20'
+                                                    : 'border-gray-500 bg-gray-50 dark:bg-gray-900/20'
+                                            : 'border-gray-300 dark:border-gray-600 hover:border-gray-400'
                                             } ${!canEditProject ? 'opacity-50 cursor-not-allowed' : ''}`}
                                     >
                                         <div className={`text-2xl mb-2 ${status.value === 'active' ? 'text-green-600' :
-                                                status.value === 'on-hold' ? 'text-yellow-600' :
-                                                    'text-gray-600'
+                                            status.value === 'on-hold' ? 'text-yellow-600' :
+                                                'text-gray-600'
                                             }`}>
                                             {status.icon}
                                         </div>

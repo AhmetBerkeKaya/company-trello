@@ -3,6 +3,8 @@ const express = require('express');
 const router = express.Router();
 const projectController = require('../controllers/projectController');
 const authMiddleware = require('../middleware/authMiddleware');
+const fileController = require('../controllers/fileController');
+
 
 router.use(authMiddleware);
 
@@ -33,5 +35,11 @@ router.delete('/:projectId', projectController.deleteProject);
 // GET /api/projects/:projectId (Proje detayını getir)
 // (Bu hep en sonda kalmalı)
 router.get('/:projectId', projectController.getProjectById);
+
+// Proje Paftalarını Getir (Artık adres: /api/projects/:projectId/plans olacak)
+router.get('/:projectId/plans', authMiddleware, fileController.getProjectPlans);
+
+// Projeye Yeni Pafta Ekle
+router.post('/:projectId/plans', authMiddleware, fileController.addProjectPlan);
 
 module.exports = router;

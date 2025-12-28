@@ -4,7 +4,16 @@ const router = express.Router();
 const fileController = require('../controllers/fileController');
 const authMiddleware = require('../middleware/authMiddleware');
 
-// YENİ: DELETE /api/files/:fileId (Dosya kaydını sil)
-router.delete('/:fileId', authMiddleware, fileController.deleteFileRecord);
+// --- GÖREV DOSYALARI ---
+// Not: Göreve dosya yükleme rotası taskRoutes içinde tanımlı olabilir 
+// veya frontend direkt fileController'ı çağırıyor olabilir.
+// Ancak biz burada proje rotalarını tanımlayacağız.
+
+// --- YENİ: PROJE PAFTALARI ---
+// Projeye ait paftaları getir
+router.get('/projects/:projectId/plans', authMiddleware, fileController.getProjectPlans);
+
+// Projeye yeni pafta ekle
+router.post('/projects/:projectId/plans', authMiddleware, fileController.addProjectPlan);
 
 module.exports = router;

@@ -35,5 +35,6 @@ router.post('/:taskId/files', authMiddleware, fileController.addFileRecord);
 
 router.delete('/:taskId', authMiddleware, taskController.deleteTask);
 
+router.put('/:taskId/location', authMiddleware, taskController.updateTaskLocation);
 
 module.exports = router;
