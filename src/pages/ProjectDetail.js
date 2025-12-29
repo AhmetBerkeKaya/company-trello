@@ -20,33 +20,25 @@ const ProjectDetail = () => {
     const [error, setError] = useState('');
     const [activeTab, setActiveTab] = useState('board');
     
-    // İstatistikler
+    // İstatistikler (Bütçe alanı eklendi)
     const [projectStats, setProjectStats] = useState({
-        totalTasks: 0, completedTasks: 0, inProgressTasks: 0, todoTasks: 0, phaseStats: []
+        totalTasks: 0, 
+        completedTasks: 0, 
+        inProgressTasks: 0, 
+        todoTasks: 0, 
+        phaseStats: [],
+        budget: { total: 0, spent: 0, remaining: 0, currency: '₺' } // YENİ
     });
-    const [loadingStats, setLoadingStats] = useState(false); // Kullanılmıyordu ama dursun
+    const [loadingStats, setLoadingStats] = useState(false);
     
-    // Yetki State'leri
-    const [canEditDetails, setCanEditDetails] = useState(false);
-    const [canChangeStatus, setCanChangeStatus] = useState(false);
-    
-    // Modallar
+    const [canEditProject, setCanEditProject] = useState(false);
     const [showDeleteModal, setShowDeleteModal] = useState(false);
+    const [showCompleteModal, setShowCompleteModal] = useState(false);
     const [showPhaseModal, setShowPhaseModal] = useState(false);
     const [newPhaseName, setNewPhaseName] = useState('');
 
-    // Form State (Ayarlar için)
-    const [formData, setFormData] = useState({
-        name: '',
-        description: '',
-        start_date: '',
-        end_date: '',
-        status: 'active'
-    });
-
     // ROL KONTROLLERİ
     const isClient = userData?.role === 'client';
-    // Admin veya Manager ayarları görebilir
     const canViewSettings = (userData?.role === 'admin' || userData?.role === 'manager') && !isClient;
 
     useEffect(() => {
@@ -62,19 +54,7 @@ const ProjectDetail = () => {
                 api.get(`/projects/${projectId}/members`),
                 api.get(`/projects/${projectId}/phases`) 
             ]);
-            
-            const p = projectRes.data;
-            setProject(p);
-            
-            // Form verilerini doldur
-            setFormData({
-                name: p.name || '',
-                description: p.description || '',
-                start_date: p.start_date ? p.start_date.split('T')[0] : '', // YYYY-MM-DD formatı
-                end_date: p.end_date ? p.end_date.split('T')[0] : '',
-                status: p.status || 'active'
-            });
-
+            setProject(projectRes.data);
             setProjectMembers(membersRes.data);
             setPhases(phasesRes.data);
             if (phasesRes.data.length > 0) setActivePhaseId(phasesRes.data[0].id);
@@ -88,27 +68,19 @@ const ProjectDetail = () => {
 
     const refreshProjectStats = async () => {
         if (!projectId) return;
+        setLoadingStats(true);
         try {
             const statsRes = await api.get(`/projects/${projectId}/stats`);
             setProjectStats(statsRes.data);
-        } catch (error) { console.error(error); }
+        } catch (error) { console.error(error); } finally { setLoadingStats(false); }
     };
 
-    // Yetki Hesaplamaları
     useEffect(() => {
         if (project && userData) {
-            const isAdmin = userData.role === 'admin';
-            const isManager = userData.role === 'manager';
-            const isCreator = project.created_by_user_id === userData.user_id;
-            const isProjectManager = project.project_manager === userData.user_id;
-
-            // Detayları (İsim, Açıklama) Kim Düzenler? -> Admin, Oluşturan veya Proje Yöneticisi
-            setCanEditDetails(!isClient && (isAdmin || isManager || isCreator || isProjectManager));
-
-            // Durumu Kim Değiştirir? -> Sadece Admin
-            setCanChangeStatus(isAdmin);
+            const canEdit = !isClient && (userData.role === 'admin' || userData.role === 'manager' || project.created_by_user_id === userData.user_id);
+            setCanEditProject(canEdit);
         }
-    }, [project, userData, isClient]);
+    }, [project, userData]);
 
     const handleAddPhase = async () => {
         if (!newPhaseName.trim()) return;
@@ -122,7 +94,7 @@ const ProjectDetail = () => {
     };
 
     const handleDeletePhase = async (phaseId) => {
-        if(!window.confirm("Bu disiplini ve içindeki tüm görevleri silmek istediğinize emin misiniz?")) return;
+        if(!window.confirm("Bu fazı ve içindeki tüm görevleri silmek istediğinize emin misiniz?")) return;
         try {
             await api.delete(`/phases/${phaseId}`);
             const newPhases = phases.filter(p => p.id !== phaseId);
@@ -132,32 +104,22 @@ const ProjectDetail = () => {
         } catch (error) { alert('Faz silinemedi'); }
     }
 
-    // Genel Ayarları Güncelleme (İsim, Açıklama, Tarih)
-    const handleUpdateSettings = async (e) => {
-        e.preventDefault();
+    const handleUpdateProjectStatus = async (newStatus) => {
+        if (!canEditProject) return;
+        if (newStatus === 'completed') { setShowCompleteModal(true); return; }
         try {
-            // 1. Temel Bilgileri Güncelle
-            if (canEditDetails) {
-                const res = await api.put(`/projects/${projectId}`, {
-                    name: formData.name,
-                    description: formData.description,
-                    start_date: formData.start_date || null,
-                    end_date: formData.end_date || null
-                });
-                setProject(prev => ({...prev, ...res.data}));
-            }
+            const response = await api.put(`/projects/${projectId}/status`, { status: newStatus });
+            setProject(response.data);
+            alert(`Durum güncellendi: ${getStatusText(newStatus)}`);
+        } catch (error) { alert('Hata oluştu'); }
+    };
 
-            // 2. Durum Değişikliği Varsa (Ve Yetkisi Varsa)
-            if (canChangeStatus && formData.status !== project.status) {
-                const statusRes = await api.put(`/projects/${projectId}/status`, { status: formData.status });
-                setProject(prev => ({...prev, status: statusRes.data.status}));
-            }
-
-            alert('Proje ayarları güncellendi.');
-        } catch (error) {
-            console.error(error);
-            alert('Güncelleme sırasında hata oluştu: ' + (error.response?.data?.message || error.message));
-        }
+    const handleCompleteProject = async () => {
+        try {
+            const response = await api.put(`/projects/${projectId}/status`, { status: 'completed' });
+            setProject(response.data);
+            setShowCompleteModal(false);
+        } catch (error) { alert('Hata oluştu'); }
     };
 
     const handleDeleteProject = async () => {
@@ -173,14 +135,7 @@ const ProjectDetail = () => {
         if (status === 'completed') return 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300';
         return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-300';
     };
-    const getStatusText = (status) => {
-        switch(status) {
-            case 'active': return 'Aktif';
-            case 'completed': return 'Tamamlandı';
-            case 'pending': return 'Beklemede';
-            default: return status;
-        }
-    };
+    const getStatusText = (status) => (status === 'active' ? 'Aktif' : status === 'completed' ? 'Tamamlandı' : 'Beklemede');
 
     if (loading) return <div className="flex justify-center h-64 items-center"><LoadingSpinner size="large" /></div>;
     if (error) return <div className="text-center p-8 text-red-500">{error}</div>;
@@ -229,9 +184,7 @@ const ProjectDetail = () => {
                 </nav>
             </div>
 
-            {/* --- TAB İÇERİKLERİ --- */}
-
-            {/* 1. BOARD */}
+            {/* BOARD */}
             {activeTab === 'board' && (
                 <div>
                     <div className="flex items-center mb-4 overflow-x-auto pb-2 space-x-2">
@@ -245,12 +198,12 @@ const ProjectDetail = () => {
                                 >
                                     {phase.name}
                                 </button>
-                                {canEditDetails && phases.length > 1 && (
+                                {canEditProject && phases.length > 1 && (
                                     <button onClick={(e) => { e.stopPropagation(); handleDeletePhase(phase.id); }} className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-4 h-4 text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity" title="Fazı Sil">×</button>
                                 )}
                             </div>
                         ))}
-                        {canEditDetails && (
+                        {canEditProject && (
                             <button onClick={() => setShowPhaseModal(true)} className="px-3 py-2 rounded-full text-sm font-medium text-blue-600 border border-dashed border-blue-300 hover:bg-blue-50 whitespace-nowrap">+ Disiplin Ekle</button>
                         )}
                     </div>
@@ -260,12 +213,14 @@ const ProjectDetail = () => {
                 </div>
             )}
 
-            {/* 2. VIEWER */}
+            {/* VIEWER */}
             {activeTab === 'viewer' && <ViewerContainer projectId={projectId} />}
             
-            {/* 3. OVERVIEW (GENEL BAKIŞ) */}
+            {/* OVERVIEW (GENEL BAKIŞ) */}
             {activeTab === 'overview' && (
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                    
+                    {/* SOL KOLON: Üyeler - MÜŞTERİYE GİZLİ */}
                     {!isClient && (
                         <div className="lg:col-span-1">
                             <div className="bg-white dark:bg-gray-800 rounded-lg shadow dark:shadow-gray-900/50">
@@ -294,8 +249,10 @@ const ProjectDetail = () => {
                             </div>
                         </div>
                     )}
+
+                    {/* SAĞ KOLON: İstatistikler */}
                     <div className={`space-y-6 ${isClient ? 'lg:col-span-3' : 'lg:col-span-2'}`}>
-                        {/* İstatistik Kartları */}
+                        {/* 1. Özet Kartları */}
                         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                             <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow text-center border-b-4 border-blue-500">
                                 <div className="text-3xl font-bold text-gray-800 dark:text-white">{projectStats.totalTasks}</div>
@@ -314,7 +271,55 @@ const ProjectDetail = () => {
                                 <div className="text-xs text-gray-500 font-medium uppercase mt-1">Bekleyen</div>
                             </div>
                         </div>
-                        {/* Faz İlerlemeleri */}
+
+                        {/* 2. YENİ: FİNANSAL DURUM KARTI (Sadece Admin/Manager görsün ve Bütçe verisi varsa) */}
+                        {!isClient && (userData?.role === 'admin' || userData?.role === 'manager') && projectStats.budget && (
+                            <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border-t-4 border-indigo-500">
+                                <div className="flex justify-between items-center mb-4">
+                                    <h2 className="text-lg font-bold text-gray-900 dark:text-white">💰 Proje Bütçesi</h2>
+                                    <span className={`px-2 py-1 rounded text-xs font-bold ${projectStats.budget.remaining >= 0 ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                                        {projectStats.budget.remaining >= 0 ? 'Bütçe İçi' : 'Bütçe Aşıldı'}
+                                    </span>
+                                </div>
+                                
+                                <div className="grid grid-cols-3 gap-4 text-center divide-x divide-gray-200 dark:divide-gray-700">
+                                    <div>
+                                        <p className="text-xs text-gray-500 uppercase">Toplam Bütçe</p>
+                                        <p className="text-xl font-bold text-gray-800 dark:text-white">
+                                            {projectStats.budget.total.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}
+                                        </p>
+                                    </div>
+                                    <div>
+                                        <p className="text-xs text-gray-500 uppercase">Harcanan</p>
+                                        <p className="text-xl font-bold text-indigo-600">
+                                            {projectStats.budget.spent.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}
+                                        </p>
+                                    </div>
+                                    <div>
+                                        <p className="text-xs text-gray-500 uppercase">Kalan</p>
+                                        <p className={`text-xl font-bold ${projectStats.budget.remaining < 0 ? 'text-red-600' : 'text-green-600'}`}>
+                                            {projectStats.budget.remaining.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}
+                                        </p>
+                                    </div>
+                                </div>
+
+                                {/* Progress Bar */}
+                                <div className="mt-4">
+                                    <div className="flex justify-between text-xs mb-1">
+                                        <span className="dark:text-gray-300">Harcama Oranı</span>
+                                        <span className="dark:text-gray-300">%{projectStats.budget.total > 0 ? Math.round((projectStats.budget.spent / projectStats.budget.total) * 100) : 0}</span>
+                                    </div>
+                                    <div className="w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700">
+                                        <div 
+                                            className={`h-2.5 rounded-full ${projectStats.budget.remaining < 0 ? 'bg-red-600' : 'bg-indigo-600'}`} 
+                                            style={{ width: `${Math.min(100, (projectStats.budget.spent / (projectStats.budget.total || 1)) * 100)}%` }}
+                                        ></div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* 3. Faz Detayları */}
                         <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden">
                             <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
                                 <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Disiplin İlerlemeleri</h2>
@@ -340,7 +345,9 @@ const ProjectDetail = () => {
                                                     <div className="text-right"><span className="text-2xl font-bold text-gray-800 dark:text-white">{percentage}%</span></div>
                                                 </div>
                                                 <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-3 overflow-hidden">
-                                                    <div className="bg-green-500 h-full rounded-full transition-all duration-500 ease-out relative" style={{ width: `${percentage}%` }}></div>
+                                                    <div className="bg-green-500 h-full rounded-full transition-all duration-500 ease-out relative" style={{ width: `${percentage}%` }}>
+                                                        <div className="absolute top-0 left-0 bottom-0 right-0 bg-white opacity-20 w-full h-full animate-pulse"></div>
+                                                    </div>
                                                 </div>
                                             </div>
                                         );
@@ -352,102 +359,11 @@ const ProjectDetail = () => {
                 </div>
             )}
 
-            {/* 4. SETTINGS (AYARLAR - GÜNCELLENDİ) */}
+            {/* SETTINGS (Müşteriye Gizli) */}
             {activeTab === 'settings' && canViewSettings && (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                    {/* Proje Bilgilerini Düzenle Formu */}
-                    <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
-                         <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-                            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Proje Ayarları</h2>
-                        </div>
-                        <div className="p-6">
-                            <form onSubmit={handleUpdateSettings}>
-                                <div className="mb-4">
-                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Proje Adı</label>
-                                    <input 
-                                        type="text" 
-                                        value={formData.name} 
-                                        onChange={e => setFormData({...formData, name: e.target.value})}
-                                        disabled={!canEditDetails}
-                                        className="w-full border rounded p-2 dark:bg-gray-700 dark:text-white dark:border-gray-600 disabled:opacity-50"
-                                    />
-                                </div>
-                                <div className="mb-4">
-                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Açıklama</label>
-                                    <textarea 
-                                        value={formData.description} 
-                                        onChange={e => setFormData({...formData, description: e.target.value})}
-                                        disabled={!canEditDetails}
-                                        rows="3"
-                                        className="w-full border rounded p-2 dark:bg-gray-700 dark:text-white dark:border-gray-600 disabled:opacity-50"
-                                    />
-                                </div>
-                                <div className="grid grid-cols-2 gap-4 mb-4">
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Başlangıç Tarihi</label>
-                                        <input 
-                                            type="date" 
-                                            value={formData.start_date} 
-                                            onChange={e => setFormData({...formData, start_date: e.target.value})}
-                                            disabled={!canEditDetails}
-                                            className="w-full border rounded p-2 dark:bg-gray-700 dark:text-white dark:border-gray-600 disabled:opacity-50"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Bitiş Tarihi</label>
-                                        <input 
-                                            type="date" 
-                                            value={formData.end_date} 
-                                            onChange={e => setFormData({...formData, end_date: e.target.value})}
-                                            disabled={!canEditDetails}
-                                            className="w-full border rounded p-2 dark:bg-gray-700 dark:text-white dark:border-gray-600 disabled:opacity-50"
-                                        />
-                                    </div>
-                                </div>
-                                
-                                {/* DURUM SEÇİCİ - Sadece Admin değiştirebilir */}
-                                <div className="mb-6">
-                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                        Proje Durumu {canChangeStatus ? '' : '(Sadece Admin)'}
-                                    </label>
-                                    <select 
-                                        value={formData.status} 
-                                        onChange={e => setFormData({...formData, status: e.target.value})}
-                                        disabled={!canChangeStatus}
-                                        className="w-full border rounded p-2 dark:bg-gray-700 dark:text-white dark:border-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
-                                    >
-                                        <option value="active">🟢 Aktif</option>
-                                        <option value="pending">🟡 Beklemede</option>
-                                        <option value="completed">⚫ Tamamlandı</option>
-                                    </select>
-                                </div>
-
-                                {(canEditDetails || canChangeStatus) && (
-                                    <button type="submit" className="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700 transition-colors">
-                                        Değişiklikleri Kaydet
-                                    </button>
-                                )}
-                            </form>
-                        </div>
-                    </div>
-
-                    {/* Tehlikeli Bölge */}
-                    {canEditDetails && (
-                        <div className="bg-white dark:bg-gray-800 rounded-lg shadow h-fit">
-                            <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-                                <h2 className="text-lg font-semibold text-red-600">Tehlikeli Bölge</h2>
-                            </div>
-                            <div className="p-6">
-                                <p className="text-gray-600 dark:text-gray-400 text-sm mb-4">
-                                    Bu işlem geri alınamaz. Projeyi, tüm görevleri ve dosyaları kalıcı olarak siler.
-                                </p>
-                                <button onClick={() => setShowDeleteModal(true)} className="bg-red-50 text-red-600 border border-red-200 px-4 py-2 rounded hover:bg-red-100 transition-colors w-full text-left flex justify-between items-center">
-                                    <span>Projeyi Kalıcı Olarak Sil</span>
-                                    <span>🗑️</span>
-                                </button>
-                            </div>
-                        </div>
-                    )}
+                <div className="bg-white dark:bg-gray-800 p-6 rounded shadow">
+                    <h3 className="font-bold text-red-600 mb-4">Yönetici Paneli</h3>
+                    <button onClick={() => setShowDeleteModal(true)} className="bg-red-600 text-white px-4 py-2 rounded">Projeyi Sil</button>
                 </div>
             )}
 
@@ -467,12 +383,22 @@ const ProjectDetail = () => {
             
             {showDeleteModal && (
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-                    <div className="bg-white dark:bg-gray-800 p-6 rounded-lg w-96">
-                        <h3 className="text-lg font-bold mb-2 text-red-600">Projeyi Sil?</h3>
-                        <p className="mb-6 text-gray-600 dark:text-gray-300">Bu işlem geri alınamaz. Emin misiniz?</p>
+                    <div className="bg-white dark:bg-gray-800 p-6 rounded-lg">
+                        <p className="mb-4 dark:text-white">Silmek istediğinize emin misiniz?</p>
                         <div className="flex justify-end space-x-2">
-                            <button onClick={() => setShowDeleteModal(false)} className="px-4 py-2 bg-gray-200 rounded text-gray-700">İptal</button>
-                            <button onClick={handleDeleteProject} className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700">Evet, Sil</button>
+                            <button onClick={() => setShowDeleteModal(false)} className="px-4 py-2 bg-gray-200 rounded">İptal</button>
+                            <button onClick={handleDeleteProject} className="px-4 py-2 bg-red-600 text-white rounded">Sil</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+             {showCompleteModal && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+                    <div className="bg-white dark:bg-gray-800 p-6 rounded-lg">
+                        <p className="mb-4 dark:text-white">Projeyi tamamlamak istiyor musunuz?</p>
+                        <div className="flex justify-end space-x-2">
+                            <button onClick={() => setShowCompleteModal(false)} className="px-4 py-2 bg-gray-200 rounded">İptal</button>
+                            <button onClick={handleCompleteProject} className="px-4 py-2 bg-green-600 text-white rounded">Tamamla</button>
                         </div>
                     </div>
                 </div>

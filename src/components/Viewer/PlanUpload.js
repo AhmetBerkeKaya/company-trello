@@ -9,24 +9,21 @@ import LoadingSpinner from '../UI/LoadingSpinner';
 const PlanUpload = ({ projectId, onUploadSuccess, onSelectPlan, selectedPlanId }) => {
   const { userData } = useAuth();
   
-  // Ana State'ler
   const [plans, setPlans] = useState([]);
-  const [tasks, setTasks] = useState([]); // Projedeki görev listesi
+  const [tasks, setTasks] = useState([]); 
   const [loading, setLoading] = useState(true);
 
-  // Upload Form State'leri
-  const [selectedFile, setSelectedFile] = useState(null); // Seçilen ama henüz yüklenmeyen dosya
+  const [selectedFile, setSelectedFile] = useState(null);
   const [description, setDescription] = useState('');
   const [selectedTaskId, setSelectedTaskId] = useState('');
   const [uploading, setUploading] = useState(false);
 
-  // 1. Verileri Çek (Paftalar ve Görevler)
   const fetchInitialData = async () => {
     try {
       setLoading(true);
       const [plansRes, tasksRes] = await Promise.all([
         api.get(`/projects/${projectId}/plans`),
-        api.get(`/projects/${projectId}/tasks`) // Görevleri çekiyoruz
+        api.get(`/projects/${projectId}/tasks`)
       ]);
       
       setPlans(plansRes.data);
@@ -46,7 +43,6 @@ const PlanUpload = ({ projectId, onUploadSuccess, onSelectPlan, selectedPlanId }
     }
   }, [projectId]);
 
-  // 2. Dosya Seçildiğinde (Yükleme Başlamaz, Form Açılır)
   const handleFileSelect = (event) => {
     const file = event.target.files[0];
     if (!file) return;
@@ -61,47 +57,39 @@ const PlanUpload = ({ projectId, onUploadSuccess, onSelectPlan, selectedPlanId }
       return;
     }
 
-    // Dosyayı state'e al ve formu aç
     setSelectedFile(file);
     setDescription('');
     setSelectedTaskId('');
-    
-    // Inputu temizle ki aynı dosyayı tekrar seçebilelim
     event.target.value = '';
   };
 
-  // 3. İptal Et
   const cancelUpload = () => {
     setSelectedFile(null);
     setDescription('');
     setSelectedTaskId('');
   };
 
-  // 4. Son Karar: YÜKLE
   const handleUpload = async () => {
     if (!selectedFile) return;
 
     setUploading(true);
     try {
-      // A. Firebase Storage'a Yükle
       const fileRef = ref(storage, `projects/${projectId}/plans/${Date.now()}_${selectedFile.name}`);
       const snapshot = await uploadBytes(fileRef, selectedFile);
       const downloadURL = await getDownloadURL(snapshot.ref);
 
-      // B. Backend API'ye Kaydet (Açıklama ve Task ID ile)
       const planDoc = {
         name: selectedFile.name,
         url: downloadURL,
         size: selectedFile.size,
         type: selectedFile.type,
         storagePath: snapshot.ref.fullPath,
-        description: description,        // YENİ: Açıklama
-        taskId: selectedTaskId || null   // YENİ: İlişkili Görev
+        description: description,
+        taskId: selectedTaskId || null
       };
 
       await api.post(`/projects/${projectId}/plans`, planDoc);
       
-      // Listeyi yenile ve formu kapat
       fetchInitialData();
       cancelUpload();
       alert('Pafta ve detaylar başarıyla kaydedildi!');
@@ -133,10 +121,8 @@ const PlanUpload = ({ projectId, onUploadSuccess, onSelectPlan, selectedPlanId }
     <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow h-full flex flex-col">
       <h3 className="font-bold text-gray-700 dark:text-gray-200 mb-4 border-b pb-2">📂 Proje Paftaları</h3>
       
-      {/* --- UPLOAD ALANI VEYA FORM --- */}
       <div className="mb-4">
         {!selectedFile ? (
-          // DURUM A: Dosya Seçme Butonu
           <>
             <input
               type="file"
@@ -154,13 +140,11 @@ const PlanUpload = ({ projectId, onUploadSuccess, onSelectPlan, selectedPlanId }
             </label>
           </>
         ) : (
-          // DURUM B: Detay Formu (Dosya Seçildi, Detay Bekleniyor)
           <div className="bg-blue-50 dark:bg-gray-700 p-3 rounded-lg border border-blue-200 dark:border-blue-900">
             <h4 className="text-sm font-bold text-blue-800 dark:text-blue-200 mb-2 truncate">
               📄 {selectedFile.name}
             </h4>
 
-            {/* Açıklama Input */}
             <div className="mb-2">
               <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Açıklama</label>
               <textarea
@@ -172,7 +156,6 @@ const PlanUpload = ({ projectId, onUploadSuccess, onSelectPlan, selectedPlanId }
               />
             </div>
 
-            {/* Görev Seçimi */}
             <div className="mb-3">
               <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">İlişkili Görev (Opsiyonel)</label>
               <select
@@ -181,15 +164,17 @@ const PlanUpload = ({ projectId, onUploadSuccess, onSelectPlan, selectedPlanId }
                 className="w-full p-2 text-xs border rounded dark:bg-gray-600 dark:text-white dark:border-gray-500"
               >
                 <option value="">-- Bir Görev Seçin --</option>
-                {tasks.map(task => (
-                  <option key={task.id} value={task.id}>
-                    {task.title} ({task.status})
-                  </option>
+                {/* DÜZELTME: 'todo' gizlendi ve sadece Başlık gösteriliyor */}
+                {tasks
+                  .filter(task => task.status !== 'todo')
+                  .map(task => (
+                    <option key={task.id} value={task.id}>
+                      {task.title}
+                    </option>
                 ))}
               </select>
             </div>
 
-            {/* Butonlar */}
             <div className="flex gap-2">
               <button 
                 onClick={handleUpload} 
@@ -210,7 +195,6 @@ const PlanUpload = ({ projectId, onUploadSuccess, onSelectPlan, selectedPlanId }
         )}
       </div>
 
-      {/* --- LİSTE --- */}
       <div className="flex-1 overflow-y-auto space-y-2 pr-1">
         {loading ? (
           <div className="text-center py-4"><LoadingSpinner size="small" /></div>
@@ -234,13 +218,11 @@ const PlanUpload = ({ projectId, onUploadSuccess, onSelectPlan, selectedPlanId }
                     <p className={`text-sm font-medium truncate ${selectedPlanId === plan.file_id ? 'text-blue-700 dark:text-blue-300' : 'text-gray-700 dark:text-gray-200'}`} title={plan.name}>
                       {plan.name}
                     </p>
-                    {/* Açıklama Varsa Göster */}
                     {plan.description && (
                       <p className="text-xs text-gray-500 dark:text-gray-400 truncate mt-0.5">
                         📝 {plan.description}
                       </p>
                     )}
-                    {/* Görev Varsa Göster */}
                     {plan.task_id && (
                        <span className="inline-block bg-purple-100 text-purple-700 text-[10px] px-1 rounded mt-1">
                          🔗 Bir göreve bağlı

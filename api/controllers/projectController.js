@@ -227,7 +227,9 @@ exports.getProjectStats = async (req, res) => {
         pp.name AS phase_name,
         pc.column_id,
         pc.order_index,
-        COUNT(t.task_id) AS task_count
+        COUNT(t.task_id) AS task_count,
+        SUM(t.estimated_cost) AS total_estimated_cost, -- YENİ: Tahmini Maliyet Toplamı
+        SUM(t.actual_cost) AS total_actual_cost        -- YENİ: Gerçekleşen Maliyet Toplamı
       FROM project_phases pp
       JOIN project_columns pc ON pp.phase_id = pc.phase_id
       LEFT JOIN tasks t ON t.status = pc.column_id::text
@@ -239,8 +241,15 @@ exports.getProjectStats = async (req, res) => {
     const { rows } = await pool.query(statsQuery, [projectId]);
     
     // 3. VERİYİ JS TARAFINDA GRUPLA (Daha güvenli ve esnek)
-    const phasesMap = {};
+    let total = 0, completed = 0, inProgress = 0, todo = 0;
+    
+    // YENİ: Global Maliyet Değişkenleri
+    let projectBudget = 0; 
+    let projectSpent = 0;
 
+    const phaseStats = [];
+    const phasesMap = {};
+    
     rows.forEach(row => {
         if (!phasesMap[row.phase_id]) {
             phasesMap[row.phase_id] = {
@@ -253,10 +262,9 @@ exports.getProjectStats = async (req, res) => {
             count: parseInt(row.task_count),
             order: row.order_index
         });
+        projectBudget += parseFloat(row.total_estimated_cost || 0);
+        projectSpent += parseFloat(row.total_actual_cost || 0);
     });
-
-    let total = 0, completed = 0, inProgress = 0, todo = 0;
-    const phaseStats = [];
 
     // Her faz için hesaplama yap
     Object.values(phasesMap).forEach(phase => {
@@ -309,7 +317,15 @@ exports.getProjectStats = async (req, res) => {
         completedTasks: completed,
         inProgressTasks: inProgress,
         todoTasks: todo,
-        phaseStats: phaseStats
+        phaseStats: phaseStats, // Senin hesapladığın dizi
+        
+        // YENİ: Finansal Verileri Response'a Ekle
+        budget: {
+            total: projectBudget,
+            spent: projectSpent,
+            remaining: projectBudget - projectSpent,
+            currency: '₺' // İleride dinamik yapılabilir
+        }
     };
 
     res.status(200).json(stats);

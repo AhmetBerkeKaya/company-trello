@@ -7,11 +7,9 @@ import api from '../../api/axios';
 
 const ItemTypes = { TASK: 'task', COLUMN: 'column' };
 
-// DraggableColumn (Müşteri için sütun taşıma da kapalı olabilir ama şimdilik açık kalsın veya kapatalım)
+// DraggableColumn
 const DraggableColumn = ({ column, index, moveColumn, projectId, onTaskUpdate, moveTask, userRole, currentUserId }) => {
   const ref = useRef(null);
-  
-  // Müşteri ise sütunları sürükleyemesin
   const canDragColumn = userRole !== 'client';
 
   const [, drop] = useDrop({
@@ -29,7 +27,7 @@ const DraggableColumn = ({ column, index, moveColumn, projectId, onTaskUpdate, m
   const [{ isDragging }, drag] = useDrag({
     type: ItemTypes.COLUMN,
     item: { type: ItemTypes.COLUMN, id: column.id, index },
-    canDrag: canDragColumn, // YENİ: Sürükleme izni
+    canDrag: canDragColumn,
     collect: (monitor) => ({ isDragging: monitor.isDragging() }),
   });
 
@@ -40,12 +38,11 @@ const DraggableColumn = ({ column, index, moveColumn, projectId, onTaskUpdate, m
   });
 
   if(canDragColumn) drag(drop(dropTask(ref)));
-  else dropTask(ref); // Müşteri sadece drop target olabilir mi? Hayır, task da bırakamaz.
+  else dropTask(ref);
 
   return (
     <div ref={ref} className={`flex-shrink-0 w-80 mr-4 transition-all duration-200 ${isDragging ? 'opacity-40' : 'opacity-100'} ${isOver && canDragColumn ? 'ring-2 ring-blue-400 rounded-lg' : ''}`}>
       <div className="bg-gray-100 dark:bg-gray-800/50 rounded-lg p-3 h-full flex flex-col">
-        {/* Müşteri ise tutamaç gizli */}
         {canDragColumn && (
             <div className="cursor-move flex justify-center pb-1 opacity-0 hover:opacity-100 transition-opacity">
                <div className="w-8 h-1 bg-gray-300 rounded-full"></div>
@@ -70,7 +67,6 @@ const Board = ({ projectId, phaseId, userRole, currentUserId, onTaskMoveSuccess 
   const [isAddingColumn, setIsAddingColumn] = useState(false);
   const [newColumnTitle, setNewColumnTitle] = useState('');
 
-  // Müşteri "Sütun Ekle" butonunu göremez
   const canEditBoard = userRole === 'admin' || userRole === 'manager';
 
   useEffect(() => {
@@ -80,19 +76,19 @@ const Board = ({ projectId, phaseId, userRole, currentUserId, onTaskMoveSuccess 
   const fetchBoardData = async () => {
     try {
       setLoading(true);
-      // Backend zaten client ise filtrelenmiş taskları dönüyor.
       const [colsRes, tasksRes] = await Promise.all([
         api.get(`/phases/${phaseId}/columns`), 
         api.get(`/projects/${projectId}/tasks`) 
       ]);
       setColumns(colsRes.data);
-      
-      // Backend filtresi varsa buradaki ek filtreye gerek kalmaz ama garanti olsun:
-      // Client ise sadece is_visible_to_client=true olanları state'e atıyoruz.
-      // (Aslında taskRes.data backend'den filtrelenmiş gelmeli)
       setTasks(tasksRes.data);
-
     } catch (error) { console.error(error); } finally { setLoading(false); }
+  };
+
+  // DÜZELTME: Görev güncellendiğinde (Bütçe vb.) hem tahtayı hem de üst istatistikleri yenile
+  const handleTaskUpdate = async () => {
+    await fetchBoardData(); 
+    if (onTaskMoveSuccess) onTaskMoveSuccess(); // BURASI EKLENDİ: ProjectDetail'i uyarır
   };
 
   const moveColumn = (dragIndex, hoverIndex) => {
@@ -122,11 +118,7 @@ const Board = ({ projectId, phaseId, userRole, currentUserId, onTaskMoveSuccess 
   };
 
   const moveTask = async (taskId, targetColumnId) => {
-    // Müşteri görev taşıyamaz!
-    if (userRole === 'client') {
-        // Opsiyonel: Alert verilebilir ama drag disabled olacağı için gerek yok
-        return; 
-    }
+    if (userRole === 'client') return; 
 
     const taskToMove = tasks.find(t => t.id === taskId);
     const canMove = userRole === 'admin' || userRole === 'manager' || (taskToMove && taskToMove.assignee_user_id === currentUserId);
@@ -135,6 +127,7 @@ const Board = ({ projectId, phaseId, userRole, currentUserId, onTaskMoveSuccess 
     setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: targetColumnId } : t));
     try {
       await api.put(`/tasks/${taskId}/status`, { status: targetColumnId });
+      // Sürükle bırak bitince istatistikleri güncelle
       if (onTaskMoveSuccess) onTaskMoveSuccess();
     } catch (error) { fetchBoardData(); }
   };
@@ -142,7 +135,7 @@ const Board = ({ projectId, phaseId, userRole, currentUserId, onTaskMoveSuccess 
   const getColumnsWithTasks = () => {
     return columns.map(col => ({
       ...col,
-      tasks: tasks.filter(task => task.status === col.id || task.column_id === col.id) // column_id desteği
+      tasks: tasks.filter(task => task.status === col.id || task.column_id === col.id)
     }));
   };
 
@@ -161,13 +154,12 @@ const Board = ({ projectId, phaseId, userRole, currentUserId, onTaskMoveSuccess 
             projectId={projectId}
             userRole={userRole}
             currentUserId={currentUserId}
-            onTaskUpdate={fetchBoardData}
+            onTaskUpdate={handleTaskUpdate} // GÜNCELLENDİ: Yeni fonksiyonu geçtik
             moveTask={moveTask}
             moveColumn={moveColumn}
           />
         ))}
         
-        {/* Yeni Sütun Ekleme Butonu (Sadece Yetkili) */}
         {canEditBoard && (
           <div className="flex-shrink-0 w-80 bg-gray-100 dark:bg-gray-800/30 rounded-lg p-4 border-2 border-dashed border-gray-300 hover:border-blue-400 transition-colors">
             {isAddingColumn ? (

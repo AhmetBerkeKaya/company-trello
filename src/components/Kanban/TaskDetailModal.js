@@ -29,8 +29,10 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, canEdit, canDeletePr
   const [assignee, setAssignee] = useState(task?.assignee_user_id || '');
   const [dueDate, setDueDate] = useState('');
   
-  // YENİ: Müşteri Görünürlüğü State'i
+  // YENİ: Müşteri Görünürlüğü ve Bütçe State'leri
   const [isVisibleToClient, setIsVisibleToClient] = useState(false);
+  const [estimatedCost, setEstimatedCost] = useState(0);
+  const [actualCost, setActualCost] = useState(0);
 
   const [comments, setComments] = useState([]);
   const [newComment, setNewComment] = useState('');
@@ -41,6 +43,9 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, canEdit, canDeletePr
 
   const canDeleteTask = canDeleteProp;
   const canAssignUser = userData?.role === 'admin' || userData?.role === 'manager';
+  
+  // YENİ: Bütçe yönetme yetkisi (Sadece yönetici ve proje yöneticisi)
+  const canManageBudget = userData?.role === 'admin' || userData?.role === 'manager';
 
   useEffect(() => {
     if (task && isOpen) {
@@ -49,8 +54,10 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, canEdit, canDeletePr
       setAssignee(task.assignee_user_id || '');
       setDueDate(task.due_date ? new Date(task.due_date).toISOString().split('T')[0] : '');
       
-      // YENİ: State'i task verisinden doldur
+      // State'leri task verisinden doldur
       setIsVisibleToClient(task.is_visible_to_client || false);
+      setEstimatedCost(task.estimated_cost || 0);
+      setActualCost(task.actual_cost || 0);
 
       fetchComments();
       fetchProjectMembers();
@@ -109,7 +116,10 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, canEdit, canDeletePr
         description: description,
         assignee: assignee || null,
         dueDate: dueDate || null,
-        isVisibleToClient: isVisibleToClient // YENİ: Backend'e gönder
+        isVisibleToClient: isVisibleToClient,
+        // YENİ: Bütçe verilerini backend'e gönder (yetkisi varsa)
+        estimatedCost: canManageBudget ? estimatedCost : undefined,
+        actualCost: canManageBudget ? actualCost : undefined
       });
       onUpdate();
       onClose();
@@ -139,8 +149,8 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, canEdit, canDeletePr
   const dateStatus = getDateStatus(dueDate);
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white dark:bg-gray-800 rounded-lg w-full max-w-2xl max-h-[90vh] overflow-hidden">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 modal-overlay">
+      <div className="bg-white dark:bg-gray-800 rounded-lg w-full max-w-2xl max-h-[90vh] overflow-hidden modal-container">
         {/* Header */}
         <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
           <div className="flex justify-between items-start">
@@ -159,7 +169,7 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, canEdit, canDeletePr
               <div className="flex items-center space-x-2 mt-1">
                 <span className="text-sm text-gray-500 dark:text-gray-400">#{task.task_id.slice(-6)}</span>
                 
-                {/* YENİ: Müşteri Görünürlüğü Badge (Header'da da gösterelim) */}
+                {/* Müşteri Görünürlüğü Badge */}
                 {isVisibleToClient && (
                     <span className="text-xs px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300 border border-purple-200 dark:border-purple-700 flex items-center gap-1">
                         👁️ Müşteriye Açık
@@ -185,7 +195,7 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, canEdit, canDeletePr
           {activeTab === 'details' && (
             <div className="space-y-6">
               
-              {/* YENİ: Görünürlük Ayarı (Sadece Edit Modunda ve Yetkili Kişiler İçin) */}
+              {/* Görünürlük Ayarı (Sadece Edit Modunda ve Yetkili Kişiler İçin) */}
               {canEdit && (userData.role === 'admin' || userData.role === 'manager') && (
                 <div className="p-4 bg-purple-50 dark:bg-purple-900/10 rounded-lg border border-purple-100 dark:border-purple-800">
                     <label className="flex items-center space-x-3 cursor-pointer">
@@ -200,6 +210,48 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, canEdit, canDeletePr
                             <span className="block text-xs text-purple-600 dark:text-purple-400">İşaretlenirse müşteri portalında bu görev görünür olacaktır.</span>
                         </div>
                     </label>
+                </div>
+              )}
+
+              {/* FİNANSAL BİLGİLER (YENİ - Sadece Yetkiliye) */}
+              {canManageBudget && (
+                <div className="bg-gray-50 dark:bg-gray-700/50 p-4 rounded-lg border border-gray-200 dark:border-gray-600">
+                    <h3 className="text-sm font-bold text-gray-900 dark:text-white mb-3 flex items-center">
+                        💰 Bütçe & Hakediş
+                    </h3>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Tahmini Maliyet (₺)</label>
+                            <input 
+                                type="number" 
+                                min="0"
+                                step="0.01"
+                                value={estimatedCost}
+                                onChange={(e) => setEstimatedCost(e.target.value)}
+                                className="w-full border rounded p-2 text-sm dark:bg-gray-700 dark:text-white dark:border-gray-500"
+                                placeholder="0.00"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Gerçekleşen (₺)</label>
+                            <input 
+                                type="number" 
+                                min="0"
+                                step="0.01"
+                                value={actualCost}
+                                onChange={(e) => setActualCost(e.target.value)}
+                                className="w-full border rounded p-2 text-sm dark:bg-gray-700 dark:text-white dark:border-gray-500"
+                                placeholder="0.00"
+                            />
+                        </div>
+                    </div>
+                    {/* Kar/Zarar Göstergesi */}
+                    <div className="mt-2 text-xs text-right">
+                        <span className={estimatedCost - actualCost >= 0 ? "text-green-600 font-medium" : "text-red-600 font-medium"}>
+                            {estimatedCost - actualCost >= 0 ? "Kalan Bütçe: " : "Bütçe Aşımı: "} 
+                            {Math.abs(estimatedCost - actualCost).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}
+                        </span>
+                    </div>
                 </div>
               )}
 
@@ -254,14 +306,14 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, canEdit, canDeletePr
               <div className="space-y-4 max-h-80 overflow-y-auto">
                 {comments.map(comment => (
                   <div key={comment.comment_id} className="bg-gray-100 dark:bg-gray-700 p-3 rounded-lg">
-                    <div className="flex justify-between"><span className="font-bold text-sm">{comment.user_info_name}</span> <span className="text-xs opacity-70">{new Date(comment.created_at).toLocaleString()}</span></div>
-                    <p className="text-sm mt-1">{comment.text}</p>
+                    <div className="flex justify-between"><span className="font-bold text-sm dark:text-white">{comment.user_info_name}</span> <span className="text-xs opacity-70 dark:text-gray-300">{new Date(comment.created_at).toLocaleString()}</span></div>
+                    <p className="text-sm mt-1 dark:text-gray-200">{comment.text}</p>
                   </div>
                 ))}
                 {comments.length === 0 && <p className="text-center text-gray-500 text-sm">Henüz yorum yok</p>}
               </div>
               <div className="flex space-x-2">
-                 <input value={newComment} onChange={e => setNewComment(e.target.value)} className="flex-1 border p-2 rounded dark:bg-gray-700 dark:text-white" placeholder="Yorum yaz..." />
+                 <input value={newComment} onChange={e => setNewComment(e.target.value)} className="flex-1 border p-2 rounded dark:bg-gray-700 dark:text-white dark:border-gray-600" placeholder="Yorum yaz..." />
                  <button onClick={handleAddComment} disabled={!newComment.trim() || loading} className="bg-blue-600 text-white px-4 rounded hover:bg-blue-700 disabled:opacity-50">Gönder</button>
               </div>
             </div>
@@ -274,7 +326,7 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, canEdit, canDeletePr
         <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 flex justify-between">
            {canDeleteTask && <button onClick={() => setShowDeleteModal(true)} className="text-red-600 hover:text-red-800 font-medium">🗑️ Sil</button>}
            <div className="flex space-x-3 ml-auto">
-              <button onClick={onClose} className="px-4 py-2 text-gray-600 hover:text-gray-800 font-medium">{canEdit ? 'İptal' : 'Kapat'}</button>
+              <button onClick={onClose} className="px-4 py-2 text-gray-600 hover:text-gray-800 font-medium dark:text-gray-300 dark:hover:text-white">{canEdit ? 'İptal' : 'Kapat'}</button>
               {canEdit && <button onClick={handleSave} disabled={loading} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium">{loading ? '...' : 'Kaydet'}</button>}
            </div>
         </div>

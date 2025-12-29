@@ -26,7 +26,8 @@ exports.getMyTasks = async (req, res) => {
 
 // POST /api/tasks (Müşteri Görünürlüğü Eklendi)
 exports.createTask = async (req, res) => {
-  const { title, status, projectId, assignee, planFileId, pinX, pinY, isVisibleToClient } = req.body;
+// estimatedCost ve actualCost parametrelerini ekledik
+  const { title, status, projectId, assignee, planFileId, pinX, pinY, isVisibleToClient, estimatedCost, actualCost } = req.body;
   const { userId: createdByUserId, name: createdByName } = req.user;
   const finalAssignee = assignee || createdByUserId;
 
@@ -34,15 +35,16 @@ exports.createTask = async (req, res) => {
     const query = `
       INSERT INTO tasks (
         title, description, status, project_id, assignee_user_id, created_by_user_id,
-        plan_file_id, pin_x, pin_y, is_visible_to_client
+        plan_file_id, pin_x, pin_y, is_visible_to_client,
+        estimated_cost, actual_cost  -- YENİ SÜTUNLAR
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
       RETURNING *
     `;
     
     const { rows } = await pool.query(query, [
       title, 
-      '', // Açıklama başlangıçta boş
+      '', 
       status, 
       projectId, 
       finalAssignee, 
@@ -50,9 +52,10 @@ exports.createTask = async (req, res) => {
       planFileId || null, 
       pinX || null, 
       pinY || null,
-      isVisibleToClient || false // Varsayılan: Müşteri göremez
+      isVisibleToClient || false,
+      estimatedCost || 0, // YENİ: Varsayılan 0
+      actualCost || 0     // YENİ: Varsayılan 0
     ]);
-
     const newTask = { ...rows[0], id: rows[0].task_id };
 
     // Bildirim Gönderimi
@@ -80,9 +83,10 @@ exports.createTask = async (req, res) => {
 // PUT /api/tasks/:taskId (Detay ve Müşteri Görünürlüğü Güncelleme)
 exports.updateTaskDetails = async (req, res) => {
   const { taskId } = req.params;
-  const { title, description, assignee: newAssignee, dueDate, isVisibleToClient } = req.body;
-  const { userId: updaterId, name: updaterName, role } = req.user; // companyId'yi sildik
-
+  // estimatedCost ve actualCost parametrelerini ekledik
+  const { title, description, assignee: newAssignee, dueDate, isVisibleToClient, estimatedCost, actualCost } = req.body;
+  const { userId: updaterId, name: updaterName, role } = req.user;
+  
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -131,13 +135,16 @@ exports.updateTaskDetails = async (req, res) => {
         description = $2, 
         assignee_user_id = $3, 
         due_date = $4,
-        is_visible_to_client = COALESCE($5, is_visible_to_client), 
+        is_visible_to_client = COALESCE($5, is_visible_to_client),
+        estimated_cost = COALESCE($6, estimated_cost), -- YENİ
+        actual_cost = COALESCE($7, actual_cost),       -- YENİ
         updated_at = NOW()
-      WHERE task_id = $6 
+      WHERE task_id = $8 
       RETURNING *
     `;
     const updateRes = await client.query(updateQuery, [
-      title, description, newAssignee || null, dueDate || null, isVisibleToClient, taskId
+      title, description, newAssignee || null, dueDate || null, isVisibleToClient, 
+      estimatedCost, actualCost, taskId
     ]);
     const updatedTask = updateRes.rows[0];
 
