@@ -26,6 +26,8 @@ router.get('/:projectId/tasks', projectController.getTasksForProject);
 // PUT /api/projects/:projectId/status (Durumu güncelle)
 router.put('/:projectId/status', projectController.updateProjectStatus);
 
+router.put('/:projectId', authMiddleware, projectController.updateProject);
+
 // YENİ: PUT /api/projects/:projectId/members (Üyeleri güncelle)
 router.put('/:projectId/members', projectController.updateProjectMembers);
 

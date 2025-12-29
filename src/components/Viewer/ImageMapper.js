@@ -2,9 +2,11 @@
 import React, { useState, useRef } from 'react';
 import api from '../../api/axios';
 import InteractivePin from './InteractivePin';
+import { useAuth } from '../../contexts/AuthContext'; // YENİ: Auth eklendi
 
 const ImageMapper = ({ plan, projectId, tasks, onTaskCreated }) => {
   const containerRef = useRef(null);
+  const { userData } = useAuth(); // YENİ: Kullanıcı bilgisi
   
   // Sürükleme Kilidi
   const isPinDragging = useRef(false);
@@ -12,15 +14,12 @@ const ImageMapper = ({ plan, projectId, tasks, onTaskCreated }) => {
   const [tempPin, setTempPin] = useState(null);
   const [newTaskTitle, setNewTaskTitle] = useState('');
 
+  // Sadece bu paftaya ait görevleri filtrele
   const planTasks = tasks.filter(t => t.plan_file_id === plan.file_id);
 
   const handleImageClick = (e) => {
-    // 1. KONTROL: Eğer sürükleme yapılıyorsa işlem yapma
     if (isPinDragging.current) return;
-
-    // 2. KONTROL (YENİ): Eğer tıklanan yer yeni görev formu veya bir buton ise işlem yapma
     if (e.target.closest('.new-task-form') || e.target.closest('button')) return;
-
     if (!containerRef.current) return;
     if (e.target.closest('.group')) return;
 
@@ -34,21 +33,16 @@ const ImageMapper = ({ plan, projectId, tasks, onTaskCreated }) => {
     });
   };
 
-  const handlePinDragStart = () => {
-    isPinDragging.current = true;
-  };
-
-  const handlePinDragEnd = () => {
-    setTimeout(() => {
-        isPinDragging.current = false;
-    }, 200);
-  };
+  const handlePinDragStart = () => { isPinDragging.current = true; };
+  const handlePinDragEnd = () => { setTimeout(() => { isPinDragging.current = false; }, 200); };
 
   const handleSaveTask = async (e) => {
-    // Tıklamanın arkaya geçmesini engelle
     if (e) e.stopPropagation();
-
     if (!newTaskTitle.trim()) return;
+    
+    // Müşteri ise otomatik görünür yap
+    const isClient = userData?.role === 'client';
+
     try {
       await api.post('/tasks', {
         title: newTaskTitle,
@@ -56,18 +50,18 @@ const ImageMapper = ({ plan, projectId, tasks, onTaskCreated }) => {
         projectId: projectId,
         planFileId: plan.file_id,
         pinX: tempPin.x,
-        pinY: tempPin.y
+        pinY: tempPin.y,
+        isVisibleToClient: isClient // YENİ: Müşteriyse true, değilse varsayılan (false)
       });
       setTempPin(null);
       setNewTaskTitle('');
       if (onTaskCreated) onTaskCreated();
     } catch (error) {
-      alert('Hata');
+      alert('Hata: ' + error.message);
     }
   };
 
   const handleCancel = (e) => {
-    // KRİTİK: Tıklamanın arkaya (resme) geçmesini engelle
     if (e) e.stopPropagation();
     setTempPin(null);
     setNewTaskTitle('');
@@ -104,9 +98,9 @@ const ImageMapper = ({ plan, projectId, tasks, onTaskCreated }) => {
         {/* Geçici Pin Formu */}
         {tempPin && (
           <div 
-            className="absolute transform -translate-x-1/2 -translate-y-full z-30 new-task-form" // 'new-task-form' sınıfı eklendi
+            className="absolute transform -translate-x-1/2 -translate-y-full z-30 new-task-form" 
             style={{ left: `${tempPin.x}%`, top: `${tempPin.y}%` }}
-            onClick={(e) => e.stopPropagation()} // Modalın kendisine tıklayınca arkaya geçmesin
+            onClick={(e) => e.stopPropagation()} 
           >
              <div className="w-8 h-8 bg-blue-600 rounded-full border-2 border-white shadow animate-bounce flex items-center justify-center text-white">+</div>
              <div className="absolute top-full left-1/2 transform -translate-x-1/2 mt-2 bg-white p-2 rounded shadow w-48 z-40">

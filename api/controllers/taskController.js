@@ -81,21 +81,23 @@ exports.createTask = async (req, res) => {
 exports.updateTaskDetails = async (req, res) => {
   const { taskId } = req.params;
   const { title, description, assignee: newAssignee, dueDate, isVisibleToClient } = req.body;
-  const { userId: updaterId, name: updaterName, role, companyId } = req.user;
+  const { userId: updaterId, name: updaterName, role } = req.user; // companyId'yi sildik
 
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     
-    // GÜVENLİK: Proje ve Şirket Kontrolü
+    // GÜVENLİK DÜZELTME: Şirket kontrolünü (p.company_id) kaldırdık.
+    // Proje bilgilerini de çekiyoruz ki yetki kontrolü yapabilelim.
     const taskQuery = `
-      SELECT t.created_by_user_id, t.assignee_user_id, t.project_id
+      SELECT t.created_by_user_id, t.assignee_user_id, t.project_id, 
+             p.created_by_user_id as project_creator_id, p.project_manager
       FROM tasks t
       JOIN projects p ON t.project_id = p.project_id
-      WHERE t.task_id = $1 AND p.company_id = $2
+      WHERE t.task_id = $1
       FOR UPDATE OF t
     `;
-    const taskRes = await client.query(taskQuery, [taskId, companyId]);
+    const taskRes = await client.query(taskQuery, [taskId]);
 
     if (taskRes.rows.length === 0) {
       await client.query('ROLLBACK');
@@ -105,8 +107,18 @@ exports.updateTaskDetails = async (req, res) => {
     const task = taskRes.rows[0];
     const oldAssignee = task.assignee_user_id;
 
-    // Sadece Admin, Manager veya Görevi Oluşturan düzenleyebilir
-    const canEdit = role === 'admin' || role === 'manager' || task.created_by_user_id === updaterId;
+    // YETKİ KONTROLÜ:
+    // 1. Admin veya Manager (Genel Yetki)
+    // 2. Görevi OLUŞTURAN kişi
+    // 3. Projeyi OLUŞTURAN kişi
+    // 4. Proje Yöneticisi
+    const canEdit = 
+        role === 'admin' || 
+        role === 'manager' || 
+        task.created_by_user_id === updaterId ||
+        task.project_creator_id === updaterId ||
+        task.project_manager === updaterId;
+
     if (!canEdit) {
       await client.query('ROLLBACK');
       return res.status(403).json({ message: 'Bu görevi düzenleme yetkiniz yok' });
@@ -119,7 +131,7 @@ exports.updateTaskDetails = async (req, res) => {
         description = $2, 
         assignee_user_id = $3, 
         due_date = $4,
-        is_visible_to_client = COALESCE($5, is_visible_to_client), -- Null gelirse eskisini koru
+        is_visible_to_client = COALESCE($5, is_visible_to_client), 
         updated_at = NOW()
       WHERE task_id = $6 
       RETURNING *
@@ -129,7 +141,7 @@ exports.updateTaskDetails = async (req, res) => {
     ]);
     const updatedTask = updateRes.rows[0];
 
-    // Atama Bildirimleri
+    // Atama Bildirimleri (Aynen kalıyor)
     if (newAssignee && newAssignee !== oldAssignee && newAssignee !== updaterId) {
       await createNotification(client, {
         userId: newAssignee,
@@ -183,20 +195,22 @@ exports.updateTaskLocation = async (req, res) => {
 exports.updateTaskStatus = async (req, res) => {
   const { taskId } = req.params;
   const { status } = req.body;
-  const { userId, name, role, companyId } = req.user;
+  const { userId, name, role } = req.user;
 
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     
+    // Şirket kontrolü kalktı
     const taskQuery = `
-      SELECT t.assignee_user_id, t.title, t.project_id 
+      SELECT t.assignee_user_id, t.title, t.project_id, 
+             p.created_by_user_id as project_creator_id, p.project_manager
       FROM tasks t
       JOIN projects p ON t.project_id = p.project_id
-      WHERE t.task_id = $1 AND p.company_id = $2
+      WHERE t.task_id = $1
       FOR UPDATE OF t
     `;
-    const taskRes = await client.query(taskQuery, [taskId, companyId]);
+    const taskRes = await client.query(taskQuery, [taskId]);
 
     if (taskRes.rows.length === 0) {
       await client.query('ROLLBACK');
@@ -204,10 +218,16 @@ exports.updateTaskStatus = async (req, res) => {
     }
 
     const task = taskRes.rows[0];
-    const isAssignee = task.assignee_user_id === userId;
-    const isManagerOrAdmin = role === 'admin' || role === 'manager';
 
-    if (!isAssignee && !isManagerOrAdmin) {
+    // YETKİ: Atanan kişi de durum değiştirebilir, Yönetici de.
+    const canMove = 
+        task.assignee_user_id === userId || 
+        role === 'admin' || 
+        role === 'manager' ||
+        task.project_creator_id === userId ||
+        task.project_manager === userId;
+
+    if (!canMove) {
       await client.query('ROLLBACK');
       return res.status(403).json({ message: 'Bu görevi taşıma yetkiniz yok' });
     }
@@ -220,7 +240,7 @@ exports.updateTaskStatus = async (req, res) => {
     `;
     const updateRes = await client.query(updateQuery, [status, taskId]);
     
-    // Bildirim
+    // Bildirim (Aynen kalıyor)
     if (task.assignee_user_id && task.assignee_user_id !== userId) {
       await createNotification(client, {
         userId: task.assignee_user_id,
@@ -250,20 +270,22 @@ exports.updateTaskStatus = async (req, res) => {
 // DELETE /api/tasks/:taskId (Silme - Değişmedi)
 exports.deleteTask = async (req, res) => {
   const { taskId } = req.params;
-  const { userId, role, name: deleterName, companyId } = req.user;
+  const { userId, role, name: deleterName } = req.user;
 
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     
+    // Şirket kontrolü kalktı
     const taskQuery = `
-      SELECT t.created_by_user_id, t.assignee_user_id, t.title, t.project_id 
+      SELECT t.created_by_user_id, t.assignee_user_id, t.title, t.project_id,
+             p.created_by_user_id as project_creator_id, p.project_manager
       FROM tasks t
       JOIN projects p ON t.project_id = p.project_id
-      WHERE t.task_id = $1 AND p.company_id = $2
+      WHERE t.task_id = $1
       FOR UPDATE OF t
     `;
-    const taskRes = await client.query(taskQuery, [taskId, companyId]);
+    const taskRes = await client.query(taskQuery, [taskId]);
 
     if (taskRes.rows.length === 0) {
       await client.query('ROLLBACK');
@@ -271,13 +293,21 @@ exports.deleteTask = async (req, res) => {
     }
     
     const task = taskRes.rows[0];
-    const canDelete = role === 'admin' || role === 'manager' || task.created_by_user_id === userId;
+
+    // YETKİ: Admin, Manager, Görevi Oluşturan, Projeyi Oluşturan veya Proje Yöneticisi
+    const canDelete = 
+        role === 'admin' || 
+        role === 'manager' || 
+        task.created_by_user_id === userId ||
+        task.project_creator_id === userId ||
+        task.project_manager === userId;
 
     if (!canDelete) {
       await client.query('ROLLBACK');
       return res.status(403).json({ message: 'Bu görevi silme yetkiniz yok' });
     }
 
+    // Bildirim (Aynen kalıyor)
     if (task.assignee_user_id && task.assignee_user_id !== userId) { 
       await createNotification(client, {
         userId: task.assignee_user_id,

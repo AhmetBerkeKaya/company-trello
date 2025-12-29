@@ -200,9 +200,9 @@ exports.getProjectMembers = async (req, res) => {
 exports.getProjectStats = async (req, res) => {
   const { projectId } = req.params;
   const userId = req.user.userId;
-  const companyId = req.user.companyId;
 
   try {
+    // 1. Erişim kontrolü
     const accessQuery = `
         SELECT company_id, 
         EXISTS(SELECT 1 FROM project_users WHERE project_id = projects.project_id AND user_id = $1) as is_member
@@ -213,51 +213,95 @@ exports.getProjectStats = async (req, res) => {
     if (accessRes.rows.length === 0) return res.status(404).json({message: 'Proje bulunamadı'});
     
     const p = accessRes.rows[0];
-    if (p.company_id !== companyId && !p.is_member && req.user.role !== 'admin') {
+    const userRole = req.user.role;
+    // Admin değilse, üye değilse ve şirket eşleşmiyorsa engelle
+    if (userRole !== 'admin' && !p.is_member && p.company_id !== req.user.companyId) {
         return res.status(403).json({ message: 'Erişim yetkiniz yok' });
     }
 
-    // İSTATİSTİK SORGUSU: Müşteri olsa bile TÜM görevleri sayıyoruz.
-    // 'clientFilter' KALDIRILDI.
-    
-    const phasesQuery = `
+    // 2. TÜM SÜTUNLARI VE GÖREV SAYILARINI ÇEK
+    // İsim tahminine gerek yok. Her sütunun kaç görevi olduğunu ve sırasını (order_index) çekiyoruz.
+    const statsQuery = `
       SELECT
         pp.phase_id,
         pp.name AS phase_name,
-        
-        COUNT(t.task_id) AS total_tasks,
-
-        COUNT(CASE 
-            WHEN (pc.title ILIKE '%Tamam%' OR pc.title ILIKE '%Bit%' OR pc.title ILIKE '%Done%' OR t.status = 'completed') 
-            THEN 1 ELSE NULL 
-        END) AS completed_tasks,
-
-        COUNT(CASE 
-            WHEN (pc.title ILIKE '%Devam%' OR pc.title ILIKE '%Sür%' OR pc.title ILIKE '%Progress%' OR t.status = 'inProgress') 
-            THEN 1 ELSE NULL 
-        END) AS in_progress_tasks,
-
-        COUNT(CASE 
-            WHEN (pc.title ILIKE '%Yap%' OR pc.title ILIKE '%Todo%' OR t.status = 'todo') 
-            THEN 1 ELSE NULL 
-        END) AS todo_tasks
-
+        pc.column_id,
+        pc.order_index,
+        COUNT(t.task_id) AS task_count
       FROM project_phases pp
-      LEFT JOIN project_columns pc ON pp.phase_id = pc.phase_id
-      LEFT JOIN tasks t ON t.status = pc.column_id::text AND t.project_id = $1
+      JOIN project_columns pc ON pp.phase_id = pc.phase_id
+      LEFT JOIN tasks t ON t.status = pc.column_id::text
       WHERE pp.project_id = $1
-      GROUP BY pp.phase_id, pp.name, pp.order_index
+      GROUP BY pp.phase_id, pp.name, pc.column_id, pc.order_index
       ORDER BY pp.order_index ASC
     `;
     
-    const { rows } = await pool.query(phasesQuery, [projectId]);
+    const { rows } = await pool.query(statsQuery, [projectId]);
     
-    let total = 0, completed = 0, inProgress = 0, todo = 0;
+    // 3. VERİYİ JS TARAFINDA GRUPLA (Daha güvenli ve esnek)
+    const phasesMap = {};
+
     rows.forEach(row => {
-        total += parseInt(row.total_tasks);
-        completed += parseInt(row.completed_tasks);
-        inProgress += parseInt(row.in_progress_tasks);
-        todo += parseInt(row.todo_tasks);
+        if (!phasesMap[row.phase_id]) {
+            phasesMap[row.phase_id] = {
+                phase_id: row.phase_id,
+                phase_name: row.phase_name,
+                columns: []
+            };
+        }
+        phasesMap[row.phase_id].columns.push({
+            count: parseInt(row.task_count),
+            order: row.order_index
+        });
+    });
+
+    let total = 0, completed = 0, inProgress = 0, todo = 0;
+    const phaseStats = [];
+
+    // Her faz için hesaplama yap
+    Object.values(phasesMap).forEach(phase => {
+        // Sütunları sırasına göre diz (Garanti olsun)
+        const cols = phase.columns.sort((a, b) => a.order - b.order);
+        
+        let p_total = 0, p_completed = 0, p_inProgress = 0, p_todo = 0;
+
+        if (cols.length > 0) {
+            // MANTIK: 
+            // - İlk Sütun (Index 0) -> Yapılacaklar (Todo)
+            // - Son Sütun (Index Length-1) -> Tamamlandı (Done)
+            // - Aradakiler -> Devam Eden (In Progress)
+
+            cols.forEach((col, index) => {
+                p_total += col.count;
+
+                if (index === 0) {
+                    // İlk Sütun: Yapılacaklar
+                    p_todo += col.count;
+                } else if (index === cols.length - 1 && cols.length > 1) {
+                    // Son Sütun (Eğer tek sütun değilse): Tamamlandı
+                    p_completed += col.count;
+                } else {
+                    // Aradaki Sütunlar: Devam Eden
+                    p_inProgress += col.count;
+                }
+            });
+        }
+
+        // Genel Toplamlara Ekle
+        total += p_total;
+        completed += p_completed;
+        inProgress += p_inProgress;
+        todo += p_todo;
+
+        // Faz İstatistiği Listesine Ekle
+        phaseStats.push({
+            phase_id: phase.phase_id,
+            phase_name: phase.phase_name,
+            total_tasks: p_total,
+            completed_tasks: p_completed,
+            in_progress_tasks: p_inProgress,
+            todo_tasks: p_todo
+        });
     });
 
     const stats = {
@@ -265,7 +309,7 @@ exports.getProjectStats = async (req, res) => {
         completedTasks: completed,
         inProgressTasks: inProgress,
         todoTasks: todo,
-        phaseStats: rows
+        phaseStats: phaseStats
     };
 
     res.status(200).json(stats);
@@ -319,25 +363,25 @@ exports.getTasksForProject = async (req, res) => {
   }
 };
 
-
-// PUT /api/projects/:projectId/status
-exports.updateProjectStatus = async (req, res) => {
+exports.updateProject = async (req, res) => {
   const { projectId } = req.params;
-  const { status } = req.body; 
-  const { userId, role, companyId } = req.user;
+  const { name, description, start_date, end_date } = req.body;
+  const { userId, role } = req.user; // companyId'yi buradan almamıza gerek kalmadı
 
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
 
-    // Sadece kendi şirketindeki projeyi güncelleyebilir
+    // DÜZELTME: 'AND company_id = $2' kısmını kaldırdık.
+    // Çünkü proje Müşteri şirketine ait olsa bile, onu oluşturan Manager (Bizim şirket) düzenleyebilmeli.
     const projectQuery = `
-      SELECT created_by_user_id 
+      SELECT created_by_user_id, project_manager, company_id 
       FROM projects 
-      WHERE project_id = $1 AND company_id = $2
+      WHERE project_id = $1
       FOR UPDATE
     `;
-    const projectRes = await client.query(projectQuery, [projectId, companyId]);
+    // Sorguya sadece projectId veriyoruz
+    const projectRes = await client.query(projectQuery, [projectId]);
 
     if (projectRes.rows.length === 0) {
       await client.query('ROLLBACK');
@@ -345,42 +389,95 @@ exports.updateProjectStatus = async (req, res) => {
     }
 
     const project = projectRes.rows[0];
-    const canEdit = role === 'admin' || project.created_by_user_id === userId;
+
+    // YETKİ KONTROLÜ:
+    // 1. Admin her şeyi düzenler.
+    // 2. Projeyi OLUŞTURAN kişi (Manager) düzenleyebilir.
+    // 3. Projeye atanmış PROJE YÖNETİCİSİ düzenleyebilir.
+    const canEdit = 
+        role === 'admin' || 
+        project.created_by_user_id === userId || 
+        project.project_manager === userId;
 
     if (!canEdit) {
       await client.query('ROLLBACK');
-      return res.status(403).json({ message: 'Proje durumunu değiştirme yetkiniz yok' });
+      return res.status(403).json({ message: 'Proje detaylarını düzenleme yetkiniz yok' });
     }
 
-    const completedAt = (status === 'completed') ? 'NOW()' : null;
-    
     const updateQuery = `
       UPDATE projects 
       SET 
-        status = $1, 
-        completed_at = ${completedAt},
+        name = COALESCE($1, name),
+        description = COALESCE($2, description),
+        start_date = $3,
+        end_date = $4,
         updated_at = NOW()
-      WHERE project_id = $2 
+      WHERE project_id = $5
       RETURNING *
     `;
-    const updateRes = await client.query(updateQuery, [status, projectId]);
+    
+    const updateRes = await client.query(updateQuery, [name, description, start_date, end_date, projectId]);
 
     await client.query('COMMIT');
     
-    res.status(200).json({
-      ...updateRes.rows[0],
-      id: updateRes.rows[0].project_id
-    });
-    
+    const updatedProject = updateRes.rows[0];
+    res.status(200).json({ ...updatedProject, id: updatedProject.project_id });
+
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('Güncelleme hatası:', error);
+    console.error('Proje güncelleme hatası:', error);
     res.status(500).json({ message: 'Sunucu hatası' });
   } finally {
     client.release();
   }
 };
 
+
+// PUT /api/projects/:projectId/status
+// GÜNCELLENEN FONKSİYON: Durum Güncelleme (Sadece Admin)
+exports.updateProjectStatus = async (req, res) => {
+  const { projectId } = req.params;
+  const { status } = req.body; 
+  const { role, companyId } = req.user; // userId sildim çünkü sadece role bakacağız
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const projectQuery = `SELECT project_id FROM projects WHERE project_id = $1 AND company_id = $2 FOR UPDATE`;
+    const projectRes = await client.query(projectQuery, [projectId, companyId]);
+
+    if (projectRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ message: 'Proje bulunamadı' });
+    }
+
+    // İSTEK: "Sadece admin değiştirebilmeli"
+    if (role !== 'admin') {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ message: 'Proje durumunu sadece Admin değiştirebilir' });
+    }
+
+    const completedAt = (status === 'completed') ? 'NOW()' : null;
+    
+    const updateQuery = `
+      UPDATE projects 
+      SET status = $1, completed_at = ${completedAt}, updated_at = NOW()
+      WHERE project_id = $2 RETURNING *
+    `;
+    const updateRes = await client.query(updateQuery, [status, projectId]);
+
+    await client.query('COMMIT');
+    res.status(200).json({ ...updateRes.rows[0], id: updateRes.rows[0].project_id });
+    
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Durum güncelleme hatası:', error);
+    res.status(500).json({ message: 'Sunucu hatası' });
+  } finally {
+    client.release();
+  }
+};
 // DELETE /api/projects/:projectId
 exports.deleteProject = async (req, res) => {
   const { projectId } = req.params;

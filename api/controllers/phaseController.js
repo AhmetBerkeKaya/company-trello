@@ -46,24 +46,44 @@ exports.getPhases = async (req, res) => {
 // POST /api/projects/:projectId/phases
 exports.createPhase = async (req, res) => {
   const { projectId } = req.params;
-  const { name, type } = req.body; // type: 'general', 'architecture', 'static', 'mechanical', 'electrical'
-  const { companyId } = req.user;
+  const { name, type } = req.body; 
+  const { userId, role } = req.user; // companyId'yi sorgu şartından çıkardık
 
   try {
-    // Güvenlik
-    const projectCheck = await pool.query(
-        'SELECT 1 FROM projects WHERE project_id = $1 AND company_id = $2', 
-        [projectId, companyId]
-    );
-    if (projectCheck.rows.length === 0) return res.status(404).json({ message: 'Proje bulunamadı' });
+    // 1. ADIM: Projeyi bul (Şirket şartı olmadan)
+    const projectQuery = `
+        SELECT created_by_user_id, project_manager, company_id 
+        FROM projects 
+        WHERE project_id = $1
+    `;
+    const projectCheck = await pool.query(projectQuery, [projectId]);
 
-    // En son sırayı bul
+    if (projectCheck.rows.length === 0) {
+        return res.status(404).json({ message: 'Proje bulunamadı' });
+    }
+
+    const project = projectCheck.rows[0];
+
+    // 2. ADIM: Yetki Kontrolü
+    // Admin, Manager, Oluşturan veya Proje Yöneticisi faz ekleyebilir.
+    const canCreate = 
+        role === 'admin' || 
+        role === 'manager' || 
+        project.created_by_user_id === userId || 
+        project.project_manager === userId;
+
+    if (!canCreate) {
+        return res.status(403).json({ message: 'Bu projeye yeni disiplin/faz ekleme yetkiniz yok' });
+    }
+
+    // 3. ADIM: En son sırayı bul
     const orderRes = await pool.query(
         'SELECT MAX(order_index) as max_order FROM project_phases WHERE project_id = $1',
         [projectId]
     );
     const nextOrder = (orderRes.rows[0].max_order || 0) + 1;
 
+    // 4. ADIM: Fazı oluştur
     const insertQuery = `
       INSERT INTO project_phases (project_id, name, type, order_index)
       VALUES ($1, $2, $3, $4)
@@ -73,12 +93,11 @@ exports.createPhase = async (req, res) => {
     
     const newPhase = rows[0];
 
-    // YENİ FAZ İÇİN OTOMATİK SÜTUNLAR
-    // Her yeni disiplin açıldığında (ör: Elektrik), içi boş gelmesin, standart sütunlar gelsin.
+    // 5. ADIM: Varsayılan Sütunları Ekle
     const defaultColumns = [
         { title: 'Yapılacaklar', order: 0, locked: true },
         { title: 'Devam Eden', order: 1, locked: true },
-        { title: 'Onay Bekleyen', order: 2, locked: false }, // Yeni ekledik
+        { title: 'Onay Bekleyen', order: 2, locked: false },
         { title: 'Tamamlandı', order: 3, locked: true }
     ];
 
@@ -91,6 +110,7 @@ exports.createPhase = async (req, res) => {
     }
 
     res.status(201).json({ ...newPhase, id: newPhase.phase_id });
+
   } catch (error) {
     console.error('Faz oluşturma hatası:', error);
     res.status(500).json({ message: 'Sunucu hatası' });

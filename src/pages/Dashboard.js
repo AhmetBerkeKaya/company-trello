@@ -19,8 +19,10 @@ const Dashboard = () => {
   const [myTasks, setMyTasks] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // Müşteri Rol Kontrolü
+  // Rol Kontrolleri
   const isClient = userData?.role === 'client';
+  // Sadece Admin ve Manager proje oluşturabilir
+  const canCreateProject = ['admin', 'manager'].includes(userData?.role);
 
   useEffect(() => {
     if (userData) {
@@ -39,7 +41,7 @@ const Dashboard = () => {
         fetchProjects(),
         fetchUpcomingMeetings()
       ];
-      // Sadece personel ise görevleri çek
+      // Sadece personel/admin/manager ise görevleri çek (Client değilse)
       if (!isClient) {
         promises.push(fetchMyTasks());
       }
@@ -117,8 +119,8 @@ const Dashboard = () => {
           </p>
         </div>
         
-        {/* YENİ PROJE BUTONU: Müşteriye Gizli */}
-        {!isClient && (
+        {/* YENİ PROJE BUTONU: Sadece Admin ve Manager görebilir */}
+        {canCreateProject && (
           <Link
             to="/projects"
             className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center space-x-2"
@@ -135,7 +137,7 @@ const Dashboard = () => {
         <StatCard icon="🔄" label="Aktif Proje" value={stats.activeProjects} color="green" link="/projects" state={{ activeTab: 'active' }} />
         <StatCard icon="📅" label="Yaklaşan Toplantı" value={stats.upcomingMeetings} color="purple" link="/meetings" state={{ activeTab: 'agenda' }} />
         
-        {/* BEKLEYEN GÖREV KARTI: Müşteriye Gizli */}
+        {/* BEKLEYEN GÖREV KARTI: Müşteriye Gizli (Personel görebilir) */}
         {!isClient && (
           <StatCard icon="✅" label="Bekleyen Görev" value={stats.pendingTasks} color="orange" onCardClick={handlePendingTasksClick} />
         )}
@@ -144,7 +146,7 @@ const Dashboard = () => {
       {/* Grid Yapısı: Müşteri ise tek kolon (sadece toplantılar), değilse iki kolon */}
       <div className={`grid grid-cols-1 ${isClient ? '' : 'lg:grid-cols-2'} gap-8`}>
         
-        {/* BENİM GÖREVLERİM: Müşteriye Gizli */}
+        {/* BENİM GÖREVLERİM: Müşteriye Gizli (Personel görebilir) */}
         {!isClient && (
           <DashboardSection
             title="Benim Görevlerim"
