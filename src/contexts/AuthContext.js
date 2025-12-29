@@ -17,8 +17,16 @@ export function AuthProvider({ children }) {
   const [userData, setUserData] = useState(null);       // Tam kullanıcı objesi
   const [loading, setLoading] = useState(true);
   const [theme, setTheme] = useState('light');
-
-  // 1. LOGIN (GÜNCELLENDİ: Return eklendi)
+  const applyBrandTheme = (userData) => {
+    if (userData?.brand_color) {
+      // CSS değişkenini güncelle (index.css içinde --brand-color tanımlayacağız)
+      document.documentElement.style.setProperty('--brand-color', userData.brand_color);
+    } else {
+      // Varsayılan renk (Mavi - Tailwind blue-600 karşılığı)
+      document.documentElement.style.setProperty('--brand-color', '#2563EB');
+    }
+  };
+  // 1. LOGIN
   const login = async (email, password) => {
     try {
       const response = await api.post('/auth/login', { email, password });
@@ -30,23 +38,45 @@ export function AuthProvider({ children }) {
       setCurrentUser(userData);
       setUserData(userData);
       
-      // Temayı da yükleyelim
+      // TEMAYI VE MARKAYI UYGULA
       if (userData.theme) {
         setTheme(userData.theme);
         updateHtmlTheme(userData.theme);
       }
-      
-      // KRİTİK NOKTA: Login.js'de rol kontrolü yapabilmek için veriyi geri döndürüyoruz
+      applyBrandTheme(userData); // <-- YENİ EKLEME
+
       return response.data; 
 
     } catch (error) {
-      console.error('Login error:', error);
-      if (error.response && error.response.data && error.response.data.message) {
-        throw new Error(error.response.data.message); 
-      }
+      // ... (hata yakalama aynı)
       throw error;
     }
   };
+
+  // 3. OTURUM KONTROLÜ (Sayfa yenilendiğinde)
+  useEffect(() => {
+    // ... (önceki kodlar)
+    const token = localStorage.getItem('token');
+    const storedUserData = localStorage.getItem('userData');
+
+    if (token && storedUserData) {
+      try {
+        const parsedData = JSON.parse(storedUserData);
+        setCurrentUser(parsedData);
+        setUserData(parsedData);
+        
+        if (parsedData.theme) {
+          setTheme(parsedData.theme);
+          updateHtmlTheme(parsedData.theme);
+        }
+        applyBrandTheme(parsedData); // <-- YENİ EKLEME (Sayfa yenilendiğinde rengi hatırla)
+
+      } catch (error) {
+        // ...
+      }
+    }
+    setLoading(false);
+  }, []);
 
   // 2. LOGOUT
   const logout = () => {

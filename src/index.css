@@ -4,6 +4,8 @@
 
 /* Dark mode için global stiller */
 :root {
+  /* Varsayılan Marka Rengi (Mavi) */
+  --brand-color: #2563EB;
   --bg-primary: #ffffff;
   --bg-secondary: #f9fafb;
   --text-primary: #111827;
@@ -23,6 +25,22 @@ body {
   background-color: var(--bg-primary);
   color: var(--text-primary);
   transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+
+/* Dinamik buton rengi kullanmak istersen bu class'ı butonlara verebilirsin */
+.bg-brand {
+  background-color: var(--brand-color);
+}
+.text-brand {
+  color: var(--brand-color);
+}
+.border-brand {
+  border-color: var(--brand-color);
+}
+.hover\:bg-brand:hover {
+  filter: brightness(90%); /* Hover'da biraz koyulaşsın */
+  background-color: var(--brand-color);
 }
 
 /* React Big Calendar Dark Mode */

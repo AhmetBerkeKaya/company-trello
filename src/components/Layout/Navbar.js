@@ -27,23 +27,43 @@ const Navbar = () => {
   const handleThemeToggle = () => {
     toggleTheme();
   };
-
+  const renderBrand = () => {
+    if (userData?.logo_url) {
+      return (
+        <div className="flex items-center gap-2">
+          <img
+            src={userData.logo_url}
+            alt={userData.company_name || 'Logo'}
+            className="h-8 w-auto object-contain max-w-[150px]"
+          />
+          {/* Logo yüklenemezse veya şeffafsa diye opsiyonel isim de yazılabilir,
+                     ama genelde logo varsa isim yazılmaz. Tercihe bağlı. */}
+        </div>
+      );
+    }
+    // Logo yoksa varsayılan isim
+    return (
+      <span className="text-lg sm:text-xl font-bold truncate" style={{ color: 'var(--brand-color)' }}>
+        {userData?.company_name || 'ProAEC'}
+      </span>
+    );
+  };
   if (!userData) {
     // userData henüz yüklenmediyse (sayfa yenilendiğinde)
     // boş bir navbar veya 'loading' göster
     return (
-       <nav className="bg-white shadow-lg border-b border-gray-200 dark:bg-gray-800 dark:border-gray-700 fixed w-full top-0 z-50">
-         <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-6">
-           <div className="flex justify-between items-center h-14 sm:h-16">
-             <div className="text-lg sm:text-xl font-bold text-blue-600 dark:text-blue-400">
-               ProAEC Yükleniyor...
-             </div>
-           </div>
-         </div>
-       </nav>
+      <nav className="bg-white shadow-lg border-b border-gray-200 dark:bg-gray-800 dark:border-gray-700 fixed w-full top-0 z-50">
+        <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-6">
+          <div className="flex justify-between items-center h-14 sm:h-16">
+            <div className="text-lg sm:text-xl font-bold text-blue-600 dark:text-blue-400">
+              ProAEC Yükleniyor...
+            </div>
+          </div>
+        </div>
+      </nav>
     );
   }
-  
+
   const navItems = [
     { path: '/', label: 'Kontrol Paneli', icon: '📊' },
     { path: '/projects', label: 'Projelerim', icon: '📁' },
@@ -78,7 +98,7 @@ const Navbar = () => {
     if (!userData) return;
     try {
       setLoadingNotifications(true);
-      const userNotifications = await getUserNotifications(); 
+      const userNotifications = await getUserNotifications();
       setNotifications(userNotifications);
       const unread = userNotifications.filter(n => !n.read).length;
       setUnreadCount(unread);
@@ -88,7 +108,7 @@ const Navbar = () => {
       setLoadingNotifications(false);
     }
   };
-  
+
   // Tümünü okundu işaretle (API'ye)
   const handleMarkAllAsRead = async () => {
     try {
@@ -103,21 +123,17 @@ const Navbar = () => {
     <nav className="bg-white shadow-lg border-b border-gray-200 dark:bg-gray-800 dark:border-gray-700 fixed w-full top-0 z-50">
       <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-6">
         <div className="flex justify-between items-center h-14 sm:h-16">
-          {/* Sol Taraf */}
+          {/* Sol Taraf - LOGO ALANI */}
           <div className="flex items-center space-x-2 sm:space-x-4">
             <button
               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-              className="p-2 rounded-lg bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 transition-colors sm:hidden"
-              aria-label="Menü"
+              className="p-2 rounded-lg bg-gray-100 dark:bg-gray-700 sm:hidden"
             >
               <span className="text-lg">☰</span>
             </button>
-            <Link
-              to="/"
-              className="text-lg sm:text-xl font-bold text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 transition-colors truncate"
-            >
-              <span className="hidden sm:inline">ProAEC Proje Yönetim Sistemi</span>
-              <span className="sm:hidden">ProAEC</span>
+            
+            <Link to="/" className="flex items-center transition-opacity hover:opacity-80">
+              {renderBrand()}
             </Link>
           </div>
 
@@ -247,7 +263,7 @@ const Navbar = () => {
                 </div>
               )}
             </div>
-            
+
             {/* Kullanıcı Bilgileri */}
             <div className="hidden sm:block text-right">
               <div className="font-medium text-gray-900 dark:text-white text-sm">{userData?.name}</div>

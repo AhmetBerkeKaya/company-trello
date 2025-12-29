@@ -11,10 +11,16 @@ exports.loginUser = async (req, res) => {
   }
 
   try {
-    // 1. Kullanıcıyı VE Şirket durumunu sorgula
-    // JOIN kullanarak kullanıcının bağlı olduğu şirketin aktif olup olmadığını da kontrol ediyoruz.
+    // 1. SORGUNUN GÜNCELLENMESİ:
+    // Şirketin 'logo_url' ve 'brand_color' bilgilerini de çekiyoruz.
     const query = `
-      SELECT u.*, c.is_active as company_is_active, c.subscription_plan 
+      SELECT 
+        u.*, 
+        c.is_active as company_is_active, 
+        c.subscription_plan,
+        c.logo_url,        -- YENİ
+        c.brand_color,     -- YENİ
+        c.name as company_name -- YENİ (Navbar'da isim göstermek istersek)
       FROM users u
       JOIN companies c ON u.company_id = c.company_id
       WHERE u.email = $1
@@ -28,9 +34,9 @@ exports.loginUser = async (req, res) => {
 
     const user = userResult.rows[0];
 
-    // 2. Şirket Aktif mi Kontrolü (SaaS Güvenliği)
+    // 2. Şirket Aktif mi Kontrolü
     if (user.company_is_active === false) {
-      return res.status(403).json({ message: 'Şirket hesabınız askıya alınmıştır. Lütfen yöneticiyle iletişime geçin.' });
+      return res.status(403).json({ message: 'Şirket hesabınız askıya alınmıştır.' });
     }
 
     // 3. Şifre Kontrolü
@@ -41,35 +47,28 @@ exports.loginUser = async (req, res) => {
     }
 
     // 4. Son giriş zamanını güncelle
-    pool.query(
-      'UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE user_id = $1',
-      [user.user_id]
-    );
+    pool.query('UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE user_id = $1', [user.user_id]);
 
-    // 5. Token Oluştur (İçine Şirket Kimliğini de Gömüyoruz!)
+    // 5. Token Oluştur
     const payload = {
       userId: user.user_id,
       email: user.email,
       name: user.name,
       role: user.role,
-      companyId: user.company_id // KRİTİK EKLEME: Artık her istekte şirket ID'si taşınacak
+      companyId: user.company_id
     };
 
-    const token = jwt.sign(
-      payload,
-      process.env.JWT_SECRET,
-      { expiresIn: '3d' }
-    );
+    const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '3d' });
 
-    // 6. Response Hazırla (Hassas verileri temizle)
     delete user.password_hash;
     
+    // 6. Response (userData içinde artık logo ve renk de var)
     res.status(200).json({
       message: 'Giriş başarılı',
       token: token,
       userData: {
         ...user,
-        subscriptionPlan: user.subscription_plan // Frontend'de özellikleri kısıtlamak için kullanabiliriz
+        subscriptionPlan: user.subscription_plan
       }
     });
 
