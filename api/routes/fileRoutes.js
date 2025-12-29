@@ -8,7 +8,7 @@ const authMiddleware = require('../middleware/authMiddleware');
 // Not: Göreve dosya yükleme rotası taskRoutes içinde tanımlı olabilir 
 // veya frontend direkt fileController'ı çağırıyor olabilir.
 // Ancak biz burada proje rotalarını tanımlayacağız.
-
+router.get('/:fileId', authMiddleware, fileController.getFileById);
 // --- YENİ: PROJE PAFTALARI ---
 // Projeye ait paftaları getir
 router.get('/projects/:projectId/plans', authMiddleware, fileController.getProjectPlans);

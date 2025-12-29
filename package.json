@@ -4,6 +4,8 @@
   "private": true,
   "dependencies": {
     "@heroicons/react": "^2.2.0",
+    "@react-three/drei": "^9.102.6",
+    "@react-three/fiber": "^8.15.16",
     "@testing-library/jest-dom": "^5.16.4",
     "@testing-library/react": "^13.4.0",
     "@testing-library/user-event": "^13.5.0",
@@ -22,6 +24,9 @@
     "react-pdf": "^10.2.0",
     "react-router-dom": "^7.9.4",
     "react-scripts": "5.0.1",
+    "three": "^0.160.0",
+    "three-stdlib": "^2.29.4",
+    "web-ifc-three": "^0.0.126",
     "web-vitals": "^2.1.4"
   },
   "scripts": {

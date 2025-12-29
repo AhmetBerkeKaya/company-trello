@@ -115,7 +115,6 @@ exports.getProjectPlans = async (req, res) => {
   }
 };
 
-// POST /api/projects/:projectId/plans (REVİZYON MANTIĞI EKLENDİ)
 exports.addProjectPlan = async (req, res) => {
   const { projectId } = req.params;
   const { name, url, storagePath, size, type, description, taskId } = req.body; 
@@ -125,7 +124,7 @@ exports.addProjectPlan = async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    // 1. AYNI İSİMDEKİ PAFTAYI BUL
+    // 1. AYNI İSİMDEKİ PAFTAYI BUL (Versiyonlama Mantığı - Aynen kalıyor)
     const checkQuery = `
       SELECT file_id, version 
       FROM files 
@@ -137,40 +136,42 @@ exports.addProjectPlan = async (req, res) => {
     let newVersion = 1;
     let parentFileId = null;
 
-    // 2. ESKİYİ ARŞİVLE
     if (checkRes.rows.length > 0) {
       const oldFile = checkRes.rows[0];
       newVersion = oldFile.version + 1;
       parentFileId = oldFile.file_id;
-
-      await client.query(
-        `UPDATE files SET is_current_version = false WHERE file_id = $1`,
-        [oldFile.file_id]
-      );
+      await client.query(`UPDATE files SET is_current_version = false WHERE file_id = $1`, [oldFile.file_id]);
     }
 
-    // 3. YENİSİNİ EKLE
+    // 2. DOSYA TÜRÜNE GÖRE DURUM BELİRLE
+    // Eğer CAD dosyasıysa 'pending', değilse 'completed'
+    const ext = name.split('.').pop().toLowerCase();
+    const needsConversion = ['rvt', 'dwg', 'ipt', 'iam', 'f3d', 'stp', 'step'].includes(ext);
+    const initialStatus = needsConversion ? 'pending' : 'completed';
+
+    // 3. YENİSİNİ EKLE (conversion_status ile)
     const insertQuery = `
       INSERT INTO files (
         name, url, storage_path, size, type, project_id, uploaded_by_user_id, 
-        category, description, task_id, version, is_current_version, parent_file_id
+        category, description, task_id, version, is_current_version, parent_file_id,
+        conversion_status -- YENİ
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, 'plan', $8, $9, $10, true, $11)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, 'plan', $8, $9, $10, true, $11, $12)
       RETURNING *
     `;
     const { rows } = await client.query(insertQuery, [
-      name, 
-      url, 
-      storagePath, 
-      size, 
-      type, 
-      projectId, 
-      uploadedByUserId, 
-      description || '', 
-      taskId || null,
-      newVersion,
-      parentFileId
+      name, url, storagePath, size, type, projectId, uploadedByUserId, 
+      description || '', taskId || null, newVersion, parentFileId,
+      initialStatus // YENİ
     ]);
+    
+    // EĞER DÖNÜŞTÜRME GEREKİYORSA SERVİSİ TETİKLE (Mock/Simülasyon)
+    if (needsConversion) {
+        // Burada normalde RabbitMQ veya Redis kuyruğuna atılır.
+        // Biz basitçe asenkron bir fonksiyon çağıracağız.
+        const conversionService = require('../services/conversionService');
+        conversionService.processFile(rows[0]); 
+    }
     
     await client.query('COMMIT');
     res.status(201).json({ ...rows[0], id: rows[0].file_id });
@@ -226,5 +227,26 @@ exports.deleteFileRecord = async (req, res) => {
     res.status(500).json({ message: 'Sunucu hatası' });
   } finally {
     client.release();
+  }
+};
+
+exports.getFileById = async (req, res) => {
+  const { fileId } = req.params;
+
+  try {
+    const query = `SELECT * FROM files WHERE file_id = $1`;
+    const { rows } = await pool.query(query, [fileId]);
+
+    if (rows.length === 0) {
+      return res.status(404).json({ message: 'Dosya bulunamadı' });
+    }
+    
+    // ID alanını frontend formatına uyarla
+    const file = { ...rows[0], id: rows[0].file_id };
+    
+    res.status(200).json(file);
+  } catch (error) {
+    console.error('Dosya getirme hatası:', error);
+    res.status(500).json({ message: 'Sunucu hatası' });
   }
 };

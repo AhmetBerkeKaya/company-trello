@@ -3,7 +3,8 @@ require('dotenv').config(); // .env dosyasını en başta yükle
 const express = require('express');
 const cors = require('cors');
 const pool = require('./db'); 
-
+const authMiddleware = require('./middleware/authMiddleware');
+const fileController = require('./controllers/fileController');
 // --- YENİ ---
 // Rotaları import et
 const authRoutes = require('./routes/authRoutes');
@@ -42,7 +43,7 @@ app.use('/api', columnRoutes);
 app.use('/api', phaseRoutes);
 app.use('/api/phases', phaseRoutes);
 app.use('/api/reports', reportRoutes);
-
+app.get('/api/files/:fileId', authMiddleware, fileController.getFileById);
 // Basit bir test yolu
 app.get('/api', (req, res) => {
   res.send('ProAEC Works API Çalışıyor!');
