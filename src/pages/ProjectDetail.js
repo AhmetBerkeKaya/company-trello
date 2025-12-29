@@ -19,18 +19,18 @@ const ProjectDetail = () => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [activeTab, setActiveTab] = useState('board');
-    
+
     // İstatistikler (Bütçe alanı eklendi)
     const [projectStats, setProjectStats] = useState({
-        totalTasks: 0, 
-        completedTasks: 0, 
-        inProgressTasks: 0, 
-        todoTasks: 0, 
+        totalTasks: 0,
+        completedTasks: 0,
+        inProgressTasks: 0,
+        todoTasks: 0,
         phaseStats: [],
         budget: { total: 0, spent: 0, remaining: 0, currency: '₺' } // YENİ
     });
     const [loadingStats, setLoadingStats] = useState(false);
-    
+
     const [canEditProject, setCanEditProject] = useState(false);
     const [showDeleteModal, setShowDeleteModal] = useState(false);
     const [showCompleteModal, setShowCompleteModal] = useState(false);
@@ -52,7 +52,7 @@ const ProjectDetail = () => {
             const [projectRes, membersRes, phasesRes] = await Promise.all([
                 api.get(`/projects/${projectId}`),
                 api.get(`/projects/${projectId}/members`),
-                api.get(`/projects/${projectId}/phases`) 
+                api.get(`/projects/${projectId}/phases`)
             ]);
             setProject(projectRes.data);
             setProjectMembers(membersRes.data);
@@ -87,19 +87,19 @@ const ProjectDetail = () => {
         try {
             const res = await api.post(`/projects/${projectId}/phases`, { name: newPhaseName, type: 'general' });
             setPhases([...phases, res.data]);
-            setActivePhaseId(res.data.id); 
+            setActivePhaseId(res.data.id);
             setNewPhaseName('');
             setShowPhaseModal(false);
         } catch (error) { alert('Faz eklenirken hata oluştu'); }
     };
 
     const handleDeletePhase = async (phaseId) => {
-        if(!window.confirm("Bu fazı ve içindeki tüm görevleri silmek istediğinize emin misiniz?")) return;
+        if (!window.confirm("Bu fazı ve içindeki tüm görevleri silmek istediğinize emin misiniz?")) return;
         try {
             await api.delete(`/phases/${phaseId}`);
             const newPhases = phases.filter(p => p.id !== phaseId);
             setPhases(newPhases);
-            if(newPhases.length > 0) setActivePhaseId(newPhases[0].id);
+            if (newPhases.length > 0) setActivePhaseId(newPhases[0].id);
             else setActivePhaseId(null);
         } catch (error) { alert('Faz silinemedi'); }
     }
@@ -136,6 +136,29 @@ const ProjectDetail = () => {
         return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-300';
     };
     const getStatusText = (status) => (status === 'active' ? 'Aktif' : status === 'completed' ? 'Tamamlandı' : 'Beklemede');
+
+    const handleDownloadReport = async () => {
+        try {
+            // Butonu loading durumuna sokabilirsin
+            const response = await api.get(`/reports/project/${projectId}`, {
+                responseType: 'blob' // ÖNEMLİ: Dosya geleceğini belirtiyoruz
+            });
+
+            // Dosyayı tarayıcıda indirtme işlemi (Native Yöntem)
+            const url = window.URL.createObjectURL(new Blob([response.data]));
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', `ProjeRaporu-${projectId}.pdf`);
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.URL.revokeObjectURL(url); // Temizlik
+
+        } catch (error) {
+            console.error("Rapor indirme hatası", error);
+            alert("Rapor oluşturulurken bir hata oluştu.");
+        }
+    };
 
     if (loading) return <div className="flex justify-center h-64 items-center"><LoadingSpinner size="large" /></div>;
     if (error) return <div className="text-center p-8 text-red-500">{error}</div>;
@@ -174,9 +197,8 @@ const ProjectDetail = () => {
                         <button
                             key={tab.id}
                             onClick={() => setActiveTab(tab.id)}
-                            className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors whitespace-nowrap ${
-                                activeTab === tab.id ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
-                            }`}
+                            className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors whitespace-nowrap ${activeTab === tab.id ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+                                }`}
                         >
                             <span className="mr-2">{tab.icon}</span>{tab.label}
                         </button>
@@ -192,9 +214,8 @@ const ProjectDetail = () => {
                             <div key={phase.id} className="relative group">
                                 <button
                                     onClick={() => setActivePhaseId(phase.id)}
-                                    className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${
-                                        activePhaseId === phase.id ? 'bg-blue-600 text-white shadow-md' : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-200 dark:border-gray-700'
-                                    }`}
+                                    className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${activePhaseId === phase.id ? 'bg-blue-600 text-white shadow-md' : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-200 dark:border-gray-700'
+                                        }`}
                                 >
                                     {phase.name}
                                 </button>
@@ -215,11 +236,11 @@ const ProjectDetail = () => {
 
             {/* VIEWER */}
             {activeTab === 'viewer' && <ViewerContainer projectId={projectId} />}
-            
+
             {/* OVERVIEW (GENEL BAKIŞ) */}
             {activeTab === 'overview' && (
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                    
+
                     {/* SOL KOLON: Üyeler - MÜŞTERİYE GİZLİ */}
                     {!isClient && (
                         <div className="lg:col-span-1">
@@ -252,6 +273,16 @@ const ProjectDetail = () => {
 
                     {/* SAĞ KOLON: İstatistikler */}
                     <div className={`space-y-6 ${isClient ? 'lg:col-span-3' : 'lg:col-span-2'}`}>
+                        {/* RAPOR BUTONU ALANI (YENİ) */}
+                        <div className="flex justify-end">
+                            <button
+                                onClick={handleDownloadReport}
+                                className="flex items-center space-x-2 bg-gray-800 hover:bg-gray-900 text-white px-4 py-2 rounded-lg transition-colors shadow-sm"
+                            >
+                                <span>📄</span>
+                                <span>PDF Rapor İndir</span>
+                            </button>
+                        </div>
                         {/* 1. Özet Kartları */}
                         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                             <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow text-center border-b-4 border-blue-500">
@@ -281,7 +312,7 @@ const ProjectDetail = () => {
                                         {projectStats.budget.remaining >= 0 ? 'Bütçe İçi' : 'Bütçe Aşıldı'}
                                     </span>
                                 </div>
-                                
+
                                 <div className="grid grid-cols-3 gap-4 text-center divide-x divide-gray-200 dark:divide-gray-700">
                                     <div>
                                         <p className="text-xs text-gray-500 uppercase">Toplam Bütçe</p>
@@ -310,8 +341,8 @@ const ProjectDetail = () => {
                                         <span className="dark:text-gray-300">%{projectStats.budget.total > 0 ? Math.round((projectStats.budget.spent / projectStats.budget.total) * 100) : 0}</span>
                                     </div>
                                     <div className="w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700">
-                                        <div 
-                                            className={`h-2.5 rounded-full ${projectStats.budget.remaining < 0 ? 'bg-red-600' : 'bg-indigo-600'}`} 
+                                        <div
+                                            className={`h-2.5 rounded-full ${projectStats.budget.remaining < 0 ? 'bg-red-600' : 'bg-indigo-600'}`}
                                             style={{ width: `${Math.min(100, (projectStats.budget.spent / (projectStats.budget.total || 1)) * 100)}%` }}
                                         ></div>
                                     </div>
@@ -380,7 +411,7 @@ const ProjectDetail = () => {
                     </div>
                 </div>
             )}
-            
+
             {showDeleteModal && (
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
                     <div className="bg-white dark:bg-gray-800 p-6 rounded-lg">
@@ -392,7 +423,7 @@ const ProjectDetail = () => {
                     </div>
                 </div>
             )}
-             {showCompleteModal && (
+            {showCompleteModal && (
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
                     <div className="bg-white dark:bg-gray-800 p-6 rounded-lg">
                         <p className="mb-4 dark:text-white">Projeyi tamamlamak istiyor musunuz?</p>
