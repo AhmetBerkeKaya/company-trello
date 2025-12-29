@@ -47,13 +47,16 @@ const PlanUpload = ({ projectId, onUploadSuccess, onSelectPlan, selectedPlanId }
     const file = event.target.files[0];
     if (!file) return;
 
-    const validTypes = ['image/jpeg', 'image/png', 'application/pdf'];
-    if (!validTypes.includes(file.type)) {
-      alert('Sadece JPG, PNG veya PDF yükleyebilirsiniz.');
+    const validExtensions = ['jpg', 'jpeg', 'png', 'pdf', 'glb', 'gltf', 'obj'];
+    const extension = file.name.split('.').pop().toLowerCase();
+
+    if (!validExtensions.includes(extension)) {
+      alert('Desteklenmeyen dosya formatı.');
       return;
     }
-    if (file.size > 10 * 1024 * 1024) {
-      alert('Dosya boyutu 10MB\'dan küçük olmalıdır');
+    
+    if (file.size > 100 * 1024 * 1024) {
+      alert('Dosya boyutu 100MB\'dan küçük olmalıdır');
       return;
     }
 
@@ -78,11 +81,22 @@ const PlanUpload = ({ projectId, onUploadSuccess, onSelectPlan, selectedPlanId }
       const snapshot = await uploadBytes(fileRef, selectedFile);
       const downloadURL = await getDownloadURL(snapshot.ref);
 
+      // --- DÜZELTME BAŞLANGICI ---
+      // Dosya tipini uzantıya göre manuel belirliyoruz. 
+      // Tarayıcı 'file.type'ı boş döndürürse hata almamak için.
+      const extension = selectedFile.name.split('.').pop().toLowerCase();
+      let fileType = selectedFile.type;
+
+      if (extension === 'obj') fileType = 'model/obj';
+      else if (extension === 'glb' || extension === 'gltf') fileType = 'model/gltf';
+      else if (!fileType) fileType = 'application/octet-stream'; // Bilinmeyen tür
+      // --- DÜZELTME BİTİŞİ ---
+
       const planDoc = {
         name: selectedFile.name,
         url: downloadURL,
         size: selectedFile.size,
-        type: selectedFile.type,
+        type: fileType, 
         storagePath: snapshot.ref.fullPath,
         description: description,
         taskId: selectedTaskId || null
@@ -92,7 +106,7 @@ const PlanUpload = ({ projectId, onUploadSuccess, onSelectPlan, selectedPlanId }
       
       fetchInitialData();
       cancelUpload();
-      alert('Pafta ve detaylar başarıyla kaydedildi!');
+      alert('Dosya başarıyla yüklendi!');
 
     } catch (error) {
       console.error('Yükleme hatası:', error);
@@ -119,7 +133,7 @@ const PlanUpload = ({ projectId, onUploadSuccess, onSelectPlan, selectedPlanId }
 
   return (
     <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow h-full flex flex-col">
-      <h3 className="font-bold text-gray-700 dark:text-gray-200 mb-4 border-b pb-2">📂 Proje Paftaları</h3>
+      <h3 className="font-bold text-gray-700 dark:text-gray-200 mb-4 border-b pb-2">📂 Proje Paftaları & 3D</h3>
       
       <div className="mb-4">
         {!selectedFile ? (
@@ -129,14 +143,15 @@ const PlanUpload = ({ projectId, onUploadSuccess, onSelectPlan, selectedPlanId }
               id="plan-upload"
               onChange={handleFileSelect}
               className="hidden"
-              accept=".jpg,.jpeg,.png,.pdf"
+              accept=".jpg,.jpeg,.png,.pdf,.glb,.gltf,.obj"
             />
             <label
               htmlFor="plan-upload"
               className="block w-full border-2 border-dashed border-blue-300 dark:border-blue-800 rounded-lg p-4 text-center cursor-pointer hover:bg-blue-50 dark:hover:bg-gray-700 transition-colors"
             >
-              <div className="text-2xl mb-1">🗺️</div>
-              <span className="text-sm text-blue-600 dark:text-blue-400 font-medium">Yeni Pafta Yükle</span>
+              <div className="text-2xl mb-1">🗺️🧊</div>
+              <span className="text-sm text-blue-600 dark:text-blue-400 font-medium">Pafta veya 3D Model Yükle</span>
+              <span className="block text-[10px] text-gray-400 mt-1">(PDF, JPG, GLB, OBJ)</span>
             </label>
           </>
         ) : (
@@ -150,7 +165,7 @@ const PlanUpload = ({ projectId, onUploadSuccess, onSelectPlan, selectedPlanId }
               <textarea
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                placeholder="Örn: Zemin kat elektrik planı revize..."
+                placeholder="Örn: Zemin kat..."
                 className="w-full p-2 text-xs border rounded dark:bg-gray-600 dark:text-white dark:border-gray-500"
                 rows="2"
               />
@@ -164,7 +179,6 @@ const PlanUpload = ({ projectId, onUploadSuccess, onSelectPlan, selectedPlanId }
                 className="w-full p-2 text-xs border rounded dark:bg-gray-600 dark:text-white dark:border-gray-500"
               >
                 <option value="">-- Bir Görev Seçin --</option>
-                {/* DÜZELTME: 'todo' gizlendi ve sadece Başlık gösteriliyor */}
                 {tasks
                   .filter(task => task.status !== 'todo')
                   .map(task => (
@@ -213,7 +227,9 @@ const PlanUpload = ({ projectId, onUploadSuccess, onSelectPlan, selectedPlanId }
             >
               <div className="flex justify-between items-start">
                 <div className="flex items-center gap-2 overflow-hidden flex-1">
-                  <span className="text-lg">{plan.type.includes('pdf') ? '📄' : '🖼️'}</span>
+                  <span className="text-lg">
+                    {plan.name.toLowerCase().endsWith('obj') || plan.name.toLowerCase().endsWith('glb') ? '🧊' : plan.type.includes('pdf') ? '📄' : '🖼️'}
+                  </span>
                   <div className="min-w-0 flex-1">
                     <p className={`text-sm font-medium truncate ${selectedPlanId === plan.file_id ? 'text-blue-700 dark:text-blue-300' : 'text-gray-700 dark:text-gray-200'}`} title={plan.name}>
                       {plan.name}
@@ -222,11 +238,6 @@ const PlanUpload = ({ projectId, onUploadSuccess, onSelectPlan, selectedPlanId }
                       <p className="text-xs text-gray-500 dark:text-gray-400 truncate mt-0.5">
                         📝 {plan.description}
                       </p>
-                    )}
-                    {plan.task_id && (
-                       <span className="inline-block bg-purple-100 text-purple-700 text-[10px] px-1 rounded mt-1">
-                         🔗 Bir göreve bağlı
-                       </span>
                     )}
                   </div>
                 </div>

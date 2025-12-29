@@ -8,10 +8,11 @@ exports.getFilesForTask = async (req, res) => {
   const { taskId } = req.params;
 
   try {
+    // Tüm dosyaları getiriyoruz (Frontend'de güncel ve geçmiş diye ayıracağız)
     const query = `
       SELECT * FROM files 
       WHERE task_id = $1 
-      ORDER BY uploaded_at DESC
+      ORDER BY is_current_version DESC, version DESC, uploaded_at DESC
     `;
     const { rows } = await pool.query(query, [taskId]);
 
@@ -27,41 +28,78 @@ exports.getFilesForTask = async (req, res) => {
   }
 };
 
-// POST /api/tasks/:taskId/files (Göreve dosya ekle)
+// POST /api/tasks/:taskId/files (REVİZYON MANTIĞI EKLENDİ)
 exports.addFileRecord = async (req, res) => {
   const { taskId } = req.params;
   const { name, url, storagePath, size, type, projectId } = req.body;
   const uploadedByUserId = req.user.userId;
 
+  const client = await pool.connect();
   try {
-    const query = `
-      INSERT INTO files (name, url, storage_path, size, type, task_id, project_id, uploaded_by_user_id, category)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'document')
+    await client.query('BEGIN');
+
+    // 1. AYNI İSİMDE MEVCUT 'GÜNCEL' DOSYAYI BUL
+    const checkQuery = `
+      SELECT file_id, version 
+      FROM files 
+      WHERE task_id = $1 AND name = $2 AND is_current_version = true
+      FOR UPDATE
+    `;
+    const checkRes = await client.query(checkQuery, [taskId, name]);
+
+    let newVersion = 1;
+    let parentFileId = null;
+
+    // 2. EĞER VARSA ESKİYİ ARŞİVLE
+    if (checkRes.rows.length > 0) {
+      const oldFile = checkRes.rows[0];
+      newVersion = oldFile.version + 1;
+      parentFileId = oldFile.file_id;
+
+      // Eski dosyanın 'is_current_version' bayrağını kaldır
+      await client.query(
+        `UPDATE files SET is_current_version = false WHERE file_id = $1`,
+        [oldFile.file_id]
+      );
+    }
+
+    // 3. YENİ DOSYAYI KAYDET (v2, v3...)
+    const insertQuery = `
+      INSERT INTO files (
+        name, url, storage_path, size, type, task_id, project_id, uploaded_by_user_id, 
+        category, version, is_current_version, parent_file_id
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'document', $9, true, $10)
       RETURNING *
     `;
-    const { rows } = await pool.query(query, [
-      name, url, storagePath, size, type, taskId, projectId, uploadedByUserId
+    const { rows } = await client.query(insertQuery, [
+      name, url, storagePath, size, type, taskId, projectId, uploadedByUserId, 
+      newVersion, parentFileId
     ]);
     
+    await client.query('COMMIT');
     res.status(201).json({ ...rows[0], id: rows[0].file_id });
+
   } catch (error) {
+    await client.query('ROLLBACK');
     console.error('Dosya kaydı ekleme hatası:', error);
     res.status(500).json({ message: 'Sunucu hatası' });
+  } finally {
+    client.release();
   }
 };
 
-// --- YENİ: PROJE PAFTALARI (PLANS) ---
+// --- PROJE PAFTALARI (PLANS) ---
 
-// GET /api/projects/:projectId/plans (Sadece paftaları getir)
+// GET /api/projects/:projectId/plans
 exports.getProjectPlans = async (req, res) => {
   const { projectId } = req.params;
 
   try {
-    // task_id IS NULL ve category = 'plan' olanlar paftadır
     const query = `
       SELECT * FROM files 
       WHERE project_id = $1 AND category = 'plan'
-      ORDER BY uploaded_at DESC
+      ORDER BY is_current_version DESC, version DESC, uploaded_at DESC
     `;
     const { rows } = await pool.query(query, [projectId]);
 
@@ -77,21 +115,50 @@ exports.getProjectPlans = async (req, res) => {
   }
 };
 
-// POST /api/projects/:projectId/plans (GÜNCELLENDİ)
+// POST /api/projects/:projectId/plans (REVİZYON MANTIĞI EKLENDİ)
 exports.addProjectPlan = async (req, res) => {
   const { projectId } = req.params;
-  // task_id ve description parametrelerini de alıyoruz
   const { name, url, storagePath, size, type, description, taskId } = req.body; 
   const uploadedByUserId = req.user.userId;
 
+  const client = await pool.connect();
   try {
-    // task_id opsiyoneldir, eğer seçilmediyse NULL gider
-    const query = `
-      INSERT INTO files (name, url, storage_path, size, type, project_id, uploaded_by_user_id, category, description, task_id)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, 'plan', $8, $9)
+    await client.query('BEGIN');
+
+    // 1. AYNI İSİMDEKİ PAFTAYI BUL
+    const checkQuery = `
+      SELECT file_id, version 
+      FROM files 
+      WHERE project_id = $1 AND category = 'plan' AND name = $2 AND is_current_version = true
+      FOR UPDATE
+    `;
+    const checkRes = await client.query(checkQuery, [projectId, name]);
+
+    let newVersion = 1;
+    let parentFileId = null;
+
+    // 2. ESKİYİ ARŞİVLE
+    if (checkRes.rows.length > 0) {
+      const oldFile = checkRes.rows[0];
+      newVersion = oldFile.version + 1;
+      parentFileId = oldFile.file_id;
+
+      await client.query(
+        `UPDATE files SET is_current_version = false WHERE file_id = $1`,
+        [oldFile.file_id]
+      );
+    }
+
+    // 3. YENİSİNİ EKLE
+    const insertQuery = `
+      INSERT INTO files (
+        name, url, storage_path, size, type, project_id, uploaded_by_user_id, 
+        category, description, task_id, version, is_current_version, parent_file_id
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, 'plan', $8, $9, $10, true, $11)
       RETURNING *
     `;
-    const { rows } = await pool.query(query, [
+    const { rows } = await client.query(insertQuery, [
       name, 
       url, 
       storagePath, 
@@ -99,14 +166,21 @@ exports.addProjectPlan = async (req, res) => {
       type, 
       projectId, 
       uploadedByUserId, 
-      description || '', // Açıklama yoksa boş kaydet
-      taskId || null     // Görev seçilmediyse NULL kaydet
+      description || '', 
+      taskId || null,
+      newVersion,
+      parentFileId
     ]);
     
+    await client.query('COMMIT');
     res.status(201).json({ ...rows[0], id: rows[0].file_id });
+
   } catch (error) {
+    await client.query('ROLLBACK');
     console.error('Pafta ekleme hatası:', error);
     res.status(500).json({ message: 'Sunucu hatası' });
+  } finally {
+    client.release();
   }
 };
 
@@ -119,7 +193,7 @@ exports.deleteFileRecord = async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const fileQuery = `SELECT uploaded_by_user_id, storage_path FROM files WHERE file_id = $1 FOR UPDATE`;
+    const fileQuery = `SELECT uploaded_by_user_id, storage_path, parent_file_id, is_current_version FROM files WHERE file_id = $1 FOR UPDATE`;
     const fileRes = await client.query(fileQuery, [fileId]);
 
     if (fileRes.rows.length === 0) {
@@ -134,6 +208,9 @@ exports.deleteFileRecord = async (req, res) => {
       await client.query('ROLLBACK');
       return res.status(403).json({ message: 'Bu dosyayı silme yetkiniz yok' });
     }
+    
+    // YENİ: Silinen dosya 'güncel' ise ve bir 'parent'ı (atası) varsa, atayı tekrar güncel yapabiliriz (Opsiyonel)
+    // Şimdilik sadece siliyoruz, geçmiş koptuğu için zincir bozulabilir ama karmaşıklığı artırmayalım.
     
     await client.query('DELETE FROM files WHERE file_id = $1', [fileId]);
     await client.query('COMMIT');

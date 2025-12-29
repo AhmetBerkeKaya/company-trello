@@ -12,6 +12,8 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@react-three/drei": "^10.7.7",
+    "@react-three/fiber": "^9.4.2",
     "axios": "^1.13.2",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.5",
@@ -20,7 +22,8 @@
     "jsonwebtoken": "^9.0.2",
     "nodemailer": "^7.0.10",
     "pdfkit": "^0.17.2",
-    "pg": "^8.16.3"
+    "pg": "^8.16.3",
+    "three": "^0.182.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.10"

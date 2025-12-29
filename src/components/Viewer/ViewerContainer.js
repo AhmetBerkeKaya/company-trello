@@ -1,7 +1,9 @@
+// src/components/Viewer/ViewerContainer.js
 import React, { useState, useEffect } from 'react';
 import PlanUpload from './PlanUpload';
 import ImageMapper from './ImageMapper';
-import PDFMapper from './PDFMapper'; // YENİ
+import PDFMapper from './PDFMapper';
+import ThreeDMapper from './ThreeDMapper'; // YENİ
 import api from '../../api/axios';
 
 const ViewerContainer = ({ projectId }) => {
@@ -21,6 +23,50 @@ const ViewerContainer = ({ projectId }) => {
     if (projectId) fetchTasks();
   }, [projectId]);
 
+  // Dosya tipine göre Render Mantığı
+  const renderMapper = () => {
+    if (!selectedPlan) return <div className="h-full flex items-center justify-center text-gray-400"><p>Dosya seçin</p></div>;
+
+    const type = selectedPlan.type.toLowerCase();
+    const name = selectedPlan.name.toLowerCase();
+
+    // 1. 3D MODELLER (glb, gltf, obj)
+    // MIME type her zaman doğru gelmeyebilir, uzantıya da bakıyoruz.
+    if (name.endsWith('.glb') || name.endsWith('.gltf') || name.endsWith('.obj') || type.includes('model')) {
+      return (
+        <ThreeDMapper 
+          plan={selectedPlan}
+          projectId={projectId}
+          tasks={tasks}
+          onTaskCreated={fetchTasks}
+        />
+      );
+    }
+
+    // 2. PDF
+    if (type.includes('pdf')) {
+      return (
+        <PDFMapper 
+          plan={selectedPlan}
+          projectId={projectId}
+          tasks={tasks}
+          onTaskCreated={fetchTasks}
+          onTaskUpdate={fetchTasks}
+        />
+      );
+    }
+
+    // 3. RESİM
+    return (
+      <ImageMapper 
+        plan={selectedPlan}
+        projectId={projectId}
+        tasks={tasks}
+        onTaskCreated={fetchTasks}
+      />
+    );
+  };
+
   return (
     <div className="flex flex-col md:flex-row h-[calc(100vh-200px)] gap-4">
       <div className="w-full md:w-1/4 h-full min-w-[300px]">
@@ -32,38 +78,16 @@ const ViewerContainer = ({ projectId }) => {
       </div>
 
       <div className="flex-1 bg-gray-100 dark:bg-gray-900 rounded-lg border border-gray-300 relative overflow-hidden flex flex-col">
-        {selectedPlan ? (
-          <>
+        {selectedPlan && (
             <div className="bg-white p-2 border-b flex justify-between items-center shadow-sm z-20">
               <span className="font-semibold text-sm">👁️ {selectedPlan.name}</span>
               <a href={selectedPlan.url} target="_blank" className="text-xs text-blue-600">Orijinali İndir</a>
             </div>
-
-            <div className="flex-1 relative overflow-hidden w-full h-full">
-              {selectedPlan.type.includes('pdf') ? (
-                // ARTIK PDF'DE DE PINLEME VAR!
-                <PDFMapper 
-                  plan={selectedPlan}
-                  projectId={projectId}
-                  tasks={tasks}
-                  onTaskCreated={fetchTasks}
-                  onTaskUpdate={fetchTasks}
-                />
-              ) : (
-                <ImageMapper 
-                  plan={selectedPlan}
-                  projectId={projectId}
-                  tasks={tasks}
-                  onTaskCreated={fetchTasks}
-                />
-              )}
-            </div>
-          </>
-        ) : (
-          <div className="h-full flex items-center justify-center text-gray-400">
-             <p>Pafta seçin</p>
-          </div>
         )}
+
+        <div className="flex-1 relative overflow-hidden w-full h-full">
+          {renderMapper()}
+        </div>
       </div>
     </div>
   );
