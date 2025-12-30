@@ -44,4 +44,6 @@ router.get('/:projectId/plans', authMiddleware, fileController.getProjectPlans);
 // Projeye Yeni Pafta Ekle
 router.post('/:projectId/plans', authMiddleware, fileController.addProjectPlan);
 
+router.post('/:projectId/folders', fileController.createFolder);
+
 module.exports = router;

@@ -1,7 +1,7 @@
 // src/components/Viewer/ViewerContainer.js
 import React, { useState, useEffect } from 'react';
-import PlanUpload from './PlanUpload';
-import ImageMapper from './ImageMapper';
+import FileExplorer from './FileExplorer'; // Eğer yeni dosya yaptıysan
+// import ImageMapper from './ImageMapper';
 import PDFMapper from './PDFMapper';
 import ForgeViewer from './ForgeViewer'; // <-- Yeni Forge Viewer Bileşeni
 import api from '../../api/axios';
@@ -117,12 +117,13 @@ const ViewerContainer = ({ projectId }) => {
     <div className="flex flex-col md:flex-row h-[calc(100vh-200px)] gap-4">
       {/* SOL: Dosya Listesi ve Yükleme */}
       <div className="w-full md:w-1/4 h-full min-w-[300px]">
-        <PlanUpload 
+        {/* Eski PlanUpload yerine FileExplorer */}
+        <FileExplorer 
           projectId={projectId} 
           onSelectPlan={(plan) => setSelectedPlan(plan)}
           selectedPlanId={selectedPlan?.file_id}
           onUploadSuccess={(newPlans) => {
-             // Opsiyonel: Yükleme sonrası liste yenilenince ne olacağı
+             // Gerekirse bir şeyler yap
           }}
         />
       </div>

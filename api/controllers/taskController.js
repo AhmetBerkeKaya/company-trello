@@ -26,8 +26,12 @@ exports.getMyTasks = async (req, res) => {
 
 // POST /api/tasks (Müşteri Görünürlüğü Eklendi)
 exports.createTask = async (req, res) => {
-// estimatedCost ve actualCost parametrelerini ekledik
-  const { title, status, projectId, assignee, planFileId, pinX, pinY, isVisibleToClient, estimatedCost, actualCost } = req.body;
+  // Add 'pin3dData' to the destructured object below
+  const { 
+    title, status, projectId, assignee, planFileId, 
+    pinX, pinY, pin3dData, isVisibleToClient, estimatedCost, actualCost 
+  } = req.body; 
+
   const { userId: createdByUserId, name: createdByName } = req.user;
   const finalAssignee = assignee || createdByUserId;
 
@@ -35,10 +39,10 @@ exports.createTask = async (req, res) => {
     const query = `
       INSERT INTO tasks (
         title, description, status, project_id, assignee_user_id, created_by_user_id,
-        plan_file_id, pin_x, pin_y, is_visible_to_client,
-        estimated_cost, actual_cost  -- YENİ SÜTUNLAR
+        plan_file_id, pin_x, pin_y, pin_3d_data, is_visible_to_client,
+        estimated_cost, actual_cost
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
       RETURNING *
     `;
     
@@ -52,9 +56,10 @@ exports.createTask = async (req, res) => {
       planFileId || null, 
       pinX || null, 
       pinY || null,
+      pin3dData || null, // This variable is now correctly defined
       isVisibleToClient || false,
-      estimatedCost || 0, // YENİ: Varsayılan 0
-      actualCost || 0     // YENİ: Varsayılan 0
+      estimatedCost || 0,
+      actualCost || 0
     ]);
     const newTask = { ...rows[0], id: rows[0].task_id };
 
