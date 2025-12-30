@@ -1,6 +1,6 @@
 // src/components/Viewer/PlanUpload.js
 import React, { useState, useEffect } from 'react';
-import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage'; // Chunk upload için Resumable eklendi
+import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
 import { storage } from '../../firebase/config';
 import api from '../../api/axios';
 import { useAuth } from '../../contexts/AuthContext';
@@ -17,9 +17,10 @@ const PlanUpload = ({ projectId, onUploadSuccess, onSelectPlan, selectedPlanId }
   const [description, setDescription] = useState('');
   const [selectedTaskId, setSelectedTaskId] = useState('');
   
-  // Yükleme Durumu (Progress Bar için)
+  // Yükleme Durumları
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadStatusText, setUploadStatusText] = useState(''); // Kullanıcıya bilgi vermek için
 
   const fetchInitialData = async () => {
     try {
@@ -31,7 +32,11 @@ const PlanUpload = ({ projectId, onUploadSuccess, onSelectPlan, selectedPlanId }
       setPlans(plansRes.data);
       setTasks(tasksRes.data);
       if (onUploadSuccess) onUploadSuccess(plansRes.data);
-    } catch (error) { console.error('Hata', error); } finally { setLoading(false); }
+    } catch (error) { 
+        console.error('Veri çekme hatası', error); 
+    } finally { 
+        setLoading(false); 
+    }
   };
 
   useEffect(() => { if (projectId) fetchInitialData(); }, [projectId]);
@@ -40,14 +45,14 @@ const PlanUpload = ({ projectId, onUploadSuccess, onSelectPlan, selectedPlanId }
     const file = event.target.files[0];
     if (!file) return;
 
-    // GENİŞLETİLMİŞ FORMAT LİSTESİ (CAD ve Mühendislik Dosyaları Eklendi)
+    // Desteklenen Uzantılar
     const validExtensions = [
         // Görsel & Doküman
         'jpg', 'jpeg', 'png', 'pdf', 
-        // Web Dostu 3D
-        'glb', 'gltf', 'obj', 'ifc', 'stl',
-        // Profesyonel CAD (Sadece Depolama)
-        'rvt', 'dwg', 'dxf', 'ipt', 'iam', 'f3d', 'cad', 'step', 'stp'
+        // Web 3D
+        'glb', 'gltf', 'obj', 'stl',
+        // Autodesk Forge (CAD/BIM)
+        'rvt', 'dwg', 'dxf', 'ipt', 'iam', 'f3d', 'ifc', 'nwc', 'skp', 'step', 'stp'
     ];
     
     const extension = file.name.split('.').pop().toLowerCase();
@@ -57,7 +62,7 @@ const PlanUpload = ({ projectId, onUploadSuccess, onSelectPlan, selectedPlanId }
       return;
     }
     
-    // Büyük dosya desteği (Chunk upload sayesinde 2GB'a kadar çıkabiliriz)
+    // 2GB Sınırı
     if (file.size > 2 * 1024 * 1024 * 1024) {
       alert('Dosya boyutu 2GB\'dan küçük olmalıdır');
       return;
@@ -67,6 +72,7 @@ const PlanUpload = ({ projectId, onUploadSuccess, onSelectPlan, selectedPlanId }
     setDescription('');
     setSelectedTaskId('');
     setUploadProgress(0);
+    setUploadStatusText('');
     event.target.value = '';
   };
 
@@ -76,66 +82,113 @@ const PlanUpload = ({ projectId, onUploadSuccess, onSelectPlan, selectedPlanId }
     setSelectedTaskId('');
     setUploadProgress(0);
     setIsUploading(false);
+    setUploadStatusText('');
   };
 
-  // CHUNK / RESUMABLE UPLOAD
-  const handleUpload = () => {
+  const handleUpload = async () => {
     if (!selectedFile) return;
     setIsUploading(true);
+    setUploadStatusText('Yükleme başlatılıyor...');
 
-    const fileRef = ref(storage, `projects/${projectId}/plans/${Date.now()}_${selectedFile.name}`);
+    // 1. Dosya Uzantısını ve Tipini Belirle
+    const extension = selectedFile.name.split('.').pop().toLowerCase();
     
-    // uploadBytesResumable: Dosyayı parçalara bölerek yükler, kesilirse devam edebilir
-    const uploadTask = uploadBytesResumable(fileRef, selectedFile);
+    // Autodesk Forge destekleyen formatlar
+    const forgeFormats = ['rvt', 'dwg', 'dxf', 'ipt', 'iam', 'f3d', 'ifc', 'nwc', 'skp', 'step', 'stp'];
+    const isForgeFile = forgeFormats.includes(extension);
 
-    uploadTask.on('state_changed', 
-      (snapshot) => {
-        // İlerleme yüzdesi hesaplama
-        const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-        setUploadProgress(Math.round(progress));
-      }, 
-      (error) => {
-        console.error('Yükleme hatası:', error);
-        alert('Yükleme başarısız oldu.');
-        setIsUploading(false);
-      }, 
-      async () => {
-        // Yükleme tamamlandı
-        try {
-          const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-          
-          // Dosya tipini belirleme
-          const extension = selectedFile.name.split('.').pop().toLowerCase();
-          let fileType = selectedFile.type;
-          
-          // Manuel Tip Atamaları
-          if (['glb', 'gltf', 'obj', 'ifc', 'stl'].includes(extension)) fileType = `model/${extension}`;
-          else if (['rvt', 'dwg', 'ipt', 'iam', 'f3d'].includes(extension)) fileType = `application/cad`; // Genel CAD tipi
-          else if (!fileType) fileType = 'application/octet-stream';
+    let urn = null; // Autodesk ID'si (Varsa buraya dolacak)
 
-          const planDoc = {
-            name: selectedFile.name,
-            url: downloadURL,
-            size: selectedFile.size,
-            type: fileType, 
-            storagePath: uploadTask.snapshot.ref.fullPath,
-            description: description,
-            taskId: selectedTaskId || null
-          };
+    try {
+        // --- ADIM A: EĞER CAD/BIM DOSYASIYSA AUTODESK'E GÖNDER ---
+        if (isForgeFile) {
+            setUploadStatusText('Autodesk sunucularına gönderiliyor ve çeviri başlatılıyor... (Bu işlem biraz sürebilir)');
+            
+            const formData = new FormData();
+            formData.append('file', selectedFile);
 
-          await api.post(`/projects/${projectId}/plans`, planDoc);
-          
-          fetchInitialData();
-          cancelUpload();
-          alert('Dosya başarıyla yüklendi!');
-        } catch (error) {
-          console.error('Veritabanı kayıt hatası:', error);
-          alert('Dosya yüklendi ama veritabanına yazılamadı.');
-        } finally {
-          setIsUploading(false);
+            // Backend'deki /api/aps/upload endpoint'ine gönderiyoruz
+            const apsResponse = await api.post('/aps/upload', formData, {
+                headers: { 'Content-Type': 'multipart/form-data' },
+                onUploadProgress: (progressEvent) => {
+                    // Autodesk upload yüzdesi (0-50% arası gösterelim)
+                    const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+                    setUploadProgress(Math.floor(percent / 2)); 
+                }
+            });
+
+            if (apsResponse.data && apsResponse.data.urn) {
+                urn = apsResponse.data.urn;
+                console.log("✅ Autodesk URN alındı:", urn);
+            } else {
+                throw new Error("Autodesk URN üretilemedi.");
+            }
         }
-      }
-    );
+
+        // --- ADIM B: FIREBASE STORAGE'A YÜKLE (Yedekleme ve İndirme İçin) ---
+        setUploadStatusText('Dosya sunucuya yedekleniyor...');
+        
+        const fileRef = ref(storage, `projects/${projectId}/plans/${Date.now()}_${selectedFile.name}`);
+        const uploadTask = uploadBytesResumable(fileRef, selectedFile);
+
+        uploadTask.on('state_changed', 
+          (snapshot) => {
+            const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+            // Eğer Autodesk yüklemesi varsa %50'den başlat, yoksa %0'dan
+            const baseProgress = isForgeFile ? 50 : 0;
+            const factor = isForgeFile ? 0.5 : 1;
+            setUploadProgress(baseProgress + Math.round(progress * factor));
+          }, 
+          (error) => {
+            console.error('Firebase Yükleme hatası:', error);
+            alert('Dosya yüklenirken hata oluştu.');
+            setIsUploading(false);
+          }, 
+          async () => {
+            // Yükleme Başarılı
+            try {
+              const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+              
+              // Veritabanı için Dosya Tipi
+              let fileType = selectedFile.type;
+              if (isForgeFile) fileType = 'application/cad';
+              else if (!fileType) fileType = 'application/octet-stream';
+
+              // --- ADIM C: VERİTABANINA KAYDET ---
+              setUploadStatusText('Veritabanına kaydediliyor...');
+
+              const planDoc = {
+                name: selectedFile.name,
+                url: downloadURL,
+                size: selectedFile.size,
+                type: fileType, 
+                storagePath: uploadTask.snapshot.ref.fullPath,
+                description: description,
+                taskId: selectedTaskId || null,
+                urn: urn // 👇 KRİTİK: Autodesk URN bilgisini gönderiyoruz!
+              };
+
+              await api.post(`/projects/${projectId}/plans`, planDoc);
+              
+              fetchInitialData();
+              cancelUpload();
+              alert('Dosya başarıyla yüklendi ve işlem sırasına alındı!');
+            } catch (error) {
+              console.error('DB Kayıt hatası:', error);
+              alert('Dosya yüklendi ama veritabanına kaydedilemedi.');
+            } finally {
+              setIsUploading(false);
+              setUploadStatusText('');
+            }
+          }
+        );
+
+    } catch (err) {
+        console.error("Genel Yükleme Hatası:", err);
+        alert("Yükleme sırasında bir hata oluştu: " + (err.response?.data?.message || err.message));
+        setIsUploading(false);
+        setUploadStatusText('');
+    }
   };
 
   const handleDeletePlan = async (e, fileId, storagePath) => {
@@ -143,18 +196,23 @@ const PlanUpload = ({ projectId, onUploadSuccess, onSelectPlan, selectedPlanId }
     if (!window.confirm('Silmek istediğinize emin misiniz?')) return;
     try {
       await api.delete(`/files/${fileId}`);
-      const fileRef = ref(storage, storagePath);
-      await deleteObject(fileRef).catch(console.warn);
+      // Firebase'den de sil (Opsiyonel, yer kazanmak için iyi olur)
+      if (storagePath) {
+          const fileRef = ref(storage, storagePath);
+          await deleteObject(fileRef).catch(console.warn);
+      }
       setPlans(prev => prev.filter(p => p.file_id !== fileId));
-    } catch (error) { alert('Silinemedi.'); }
+    } catch (error) { 
+        alert('Silme işlemi başarısız.'); 
+    }
   };
 
   const getFileIcon = (name) => {
       const ext = name.split('.').pop().toLowerCase();
       if (['pdf'].includes(ext)) return '📄';
       if (['jpg', 'jpeg', 'png'].includes(ext)) return '🖼️';
-      if (['glb', 'gltf', 'obj', 'ifc', 'stl'].includes(ext)) return '🧊';
-      if (['rvt', 'dwg', 'dxf', 'ipt', 'iam', 'f3d'].includes(ext)) return '🏗️'; // CAD ikonu
+      if (['glb', 'gltf', 'obj', 'stl'].includes(ext)) return '🧊';
+      if (['rvt', 'dwg', 'dxf', 'ipt', 'iam', 'f3d', 'ifc', 'nwc'].includes(ext)) return '🏗️';
       return '📁';
   };
 
@@ -170,8 +228,7 @@ const PlanUpload = ({ projectId, onUploadSuccess, onSelectPlan, selectedPlanId }
               id="plan-upload"
               onChange={handleFileSelect}
               className="hidden"
-              // Tüm uzantıları kabul et
-              accept=".jpg,.jpeg,.png,.pdf,.glb,.gltf,.obj,.ifc,.stl,.rvt,.dwg,.dxf,.ipt,.iam,.f3d,.cad,.step,.stp"
+              accept=".jpg,.jpeg,.png,.pdf,.glb,.gltf,.obj,.stl,.rvt,.dwg,.dxf,.ipt,.iam,.f3d,.ifc,.nwc,.skp,.step,.stp"
             />
             <label
               htmlFor="plan-upload"
@@ -179,8 +236,8 @@ const PlanUpload = ({ projectId, onUploadSuccess, onSelectPlan, selectedPlanId }
             >
               <div className="text-2xl mb-1">☁️</div>
               <span className="text-sm text-blue-600 dark:text-blue-400 font-medium">Dosya Yükle</span>
-              <span className="block text-[10px] text-gray-400 mt-1 max-w-[200px] mx-auto">
-                (PDF, Resim, 3D Model, DWG, RVT, IPT, IAM...)
+              <span className="block text-[10px] text-gray-400 mt-1 max-w-[220px] mx-auto">
+                (PDF, Resim, RVT, DWG, IFC, IPT, IAM...)
               </span>
             </label>
           </>
@@ -193,7 +250,7 @@ const PlanUpload = ({ projectId, onUploadSuccess, onSelectPlan, selectedPlanId }
                 <textarea 
                     value={description} 
                     onChange={e => setDescription(e.target.value)} 
-                    placeholder="Açıklama..." 
+                    placeholder="Açıklama (Opsiyonel)..." 
                     className="w-full p-2 text-xs border rounded dark:bg-gray-600 dark:text-white" 
                 />
             </div>
@@ -206,11 +263,11 @@ const PlanUpload = ({ projectId, onUploadSuccess, onSelectPlan, selectedPlanId }
               </select>
             </div>
             
-            {/* Progress Bar */}
+            {/* Progress Bar & Durum Metni */}
             {isUploading && (
-                <div className="mb-2">
-                    <div className="flex justify-between text-xs mb-1 dark:text-gray-300">
-                        <span>Yükleniyor...</span>
+                <div className="mb-3">
+                    <div className="flex justify-between text-xs mb-1 dark:text-gray-300 font-semibold">
+                        <span>{uploadStatusText}</span>
                         <span>%{uploadProgress}</span>
                     </div>
                     <div className="w-full bg-gray-200 rounded-full h-2 dark:bg-gray-600">
@@ -220,40 +277,49 @@ const PlanUpload = ({ projectId, onUploadSuccess, onSelectPlan, selectedPlanId }
             )}
 
             <div className="flex gap-2">
-              <button onClick={handleUpload} disabled={isUploading} className="flex-1 bg-blue-600 text-white text-xs py-2 rounded disabled:opacity-50">
-                {isUploading ? 'Yükleniyor...' : 'Yükle'}
+              <button onClick={handleUpload} disabled={isUploading} className="flex-1 bg-blue-600 text-white text-xs py-2 rounded disabled:opacity-50 hover:bg-blue-700 transition">
+                {isUploading ? 'İşleniyor...' : 'Yükle ve Çevir'}
               </button>
-              <button onClick={cancelUpload} disabled={isUploading} className="flex-1 bg-gray-300 text-gray-700 text-xs py-2 rounded hover:bg-gray-400">İptal</button>
+              <button onClick={cancelUpload} disabled={isUploading} className="flex-1 bg-gray-300 text-gray-700 text-xs py-2 rounded hover:bg-gray-400 transition">İptal</button>
             </div>
           </div>
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto space-y-2 pr-1">
+      <div className="flex-1 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
         {loading ? (
           <div className="text-center py-4"><LoadingSpinner size="small" /></div>
         ) : plans.length === 0 ? (
-          <p className="text-center text-gray-400 text-sm py-4">Dosya yok.</p>
+          <p className="text-center text-gray-400 text-sm py-4">Henüz dosya yüklenmemiş.</p>
         ) : (
           plans.map(plan => (
             <div 
               key={plan.file_id} 
               onClick={() => onSelectPlan && onSelectPlan(plan)}
-              className={`p-2 rounded border cursor-pointer transition-all
+              className={`p-2 rounded border cursor-pointer transition-all relative group
                 ${selectedPlanId === plan.file_id 
-                  ? 'bg-blue-50 border-blue-500 ring-1 ring-blue-500 dark:bg-blue-900/30' 
-                  : 'bg-gray-50 dark:bg-gray-700/50 border-gray-100 dark:border-gray-700 hover:bg-gray-100'
+                  ? 'bg-blue-50 border-blue-500 ring-1 ring-blue-500 dark:bg-blue-900/40 dark:border-blue-500' 
+                  : 'bg-white dark:bg-gray-700/50 border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700'
                 }`}
             >
               <div className="flex justify-between items-start">
                 <div className="flex items-center gap-2 overflow-hidden flex-1">
-                  <span className="text-lg">{getFileIcon(plan.name)}</span>
+                  <span className="text-xl">{getFileIcon(plan.name)}</span>
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium truncate dark:text-gray-200">{plan.name}</p>
-                    {plan.is_current_version && <span className="text-[10px] bg-green-100 text-green-800 px-1 rounded">v{plan.version}</span>}
+                    <div className="flex items-center gap-1 mt-0.5">
+                        {plan.is_current_version && <span className="text-[10px] bg-green-100 text-green-800 px-1.5 rounded-sm font-bold">v{plan.version}</span>}
+                        {plan.urn && <span className="text-[10px] bg-purple-100 text-purple-800 px-1.5 rounded-sm font-bold">3D</span>}
+                    </div>
                   </div>
                 </div>
-                <button onClick={(e) => handleDeletePlan(e, plan.file_id, plan.storage_path)} className="text-red-500 hover:bg-red-100 p-1 rounded">🗑️</button>
+                <button 
+                    onClick={(e) => handleDeletePlan(e, plan.file_id, plan.storage_path)} 
+                    className="text-gray-400 hover:text-red-500 p-1.5 rounded hover:bg-red-50 transition opacity-0 group-hover:opacity-100"
+                    title="Sil"
+                >
+                    🗑️
+                </button>
               </div>
             </div>
           ))

@@ -22,6 +22,9 @@ const reportRoutes = require('./routes/reportRoutes');
 
 const app = express();
 const port = process.env.API_PORT || 5000;
+const apsController = require('./controllers/apsController');
+const multer = require('multer');
+const upload = multer({ storage: multer.memoryStorage() }); // Dosyayı hafızada tut
 
 // Middleware'ler
 app.use(cors()); 
@@ -44,6 +47,12 @@ app.use('/api', phaseRoutes);
 app.use('/api/phases', phaseRoutes);
 app.use('/api/reports', reportRoutes);
 app.get('/api/files/:fileId', authMiddleware, fileController.getFileById);
+app.delete('/api/files/:fileId', authMiddleware, fileController.deleteFileRecord);
+
+
+app.get('/api/aps/token', apsController.getPublicToken);
+app.post('/api/aps/upload', upload.single('file'), apsController.uploadAndTranslate);
+
 // Basit bir test yolu
 app.get('/api', (req, res) => {
   res.send('ProAEC Works API Çalışıyor!');

@@ -26,7 +26,6 @@
     "react-scripts": "5.0.1",
     "three": "^0.160.0",
     "three-stdlib": "^2.29.4",
-    "web-ifc-three": "^0.0.126",
     "web-vitals": "^2.1.4"
   },
   "scripts": {

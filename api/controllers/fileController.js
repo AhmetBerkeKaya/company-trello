@@ -117,14 +117,15 @@ exports.getProjectPlans = async (req, res) => {
 
 exports.addProjectPlan = async (req, res) => {
   const { projectId } = req.params;
-  const { name, url, storagePath, size, type, description, taskId } = req.body; 
+  // 1. BURAYA 'urn' EKLEDİK
+  const { name, url, storagePath, size, type, description, taskId, urn } = req.body; 
   const uploadedByUserId = req.user.userId;
 
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
 
-    // 1. AYNI İSİMDEKİ PAFTAYI BUL (Versiyonlama Mantığı - Aynen kalıyor)
+    // ... (Eski dosya kontrolü/versiyonlama kısmı aynen kalıyor) ...
     const checkQuery = `
       SELECT file_id, version 
       FROM files 
@@ -143,35 +144,29 @@ exports.addProjectPlan = async (req, res) => {
       await client.query(`UPDATE files SET is_current_version = false WHERE file_id = $1`, [oldFile.file_id]);
     }
 
-    // 2. DOSYA TÜRÜNE GÖRE DURUM BELİRLE
-    // Eğer CAD dosyasıysa 'pending', değilse 'completed'
+    // Dosya durumu
     const ext = name.split('.').pop().toLowerCase();
-    const needsConversion = ['rvt', 'dwg', 'ipt', 'iam', 'f3d', 'stp', 'step'].includes(ext);
+    const needsConversion = ['rvt', 'dwg', 'ipt', 'iam', 'f3d', 'stp', 'step', 'ifc'].includes(ext);
     const initialStatus = needsConversion ? 'pending' : 'completed';
 
-    // 3. YENİSİNİ EKLE (conversion_status ile)
+    // 2. INSERT SORGUSUNA 'urn' SÜTUNUNU EKLEDİK
     const insertQuery = `
       INSERT INTO files (
         name, url, storage_path, size, type, project_id, uploaded_by_user_id, 
         category, description, task_id, version, is_current_version, parent_file_id,
-        conversion_status -- YENİ
+        conversion_status, urn 
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, 'plan', $8, $9, $10, true, $11, $12)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, 'plan', $8, $9, $10, true, $11, $12, $13)
       RETURNING *
     `;
+
+    // 3. DEĞERLER DİZİSİNE 'urn' EKLEDİK (yoksa null olsun)
     const { rows } = await client.query(insertQuery, [
       name, url, storagePath, size, type, projectId, uploadedByUserId, 
       description || '', taskId || null, newVersion, parentFileId,
-      initialStatus // YENİ
+      initialStatus, 
+      urn || null // <--- BURASI ÇOK ÖNEMLİ
     ]);
-    
-    // EĞER DÖNÜŞTÜRME GEREKİYORSA SERVİSİ TETİKLE (Mock/Simülasyon)
-    if (needsConversion) {
-        // Burada normalde RabbitMQ veya Redis kuyruğuna atılır.
-        // Biz basitçe asenkron bir fonksiyon çağıracağız.
-        const conversionService = require('../services/conversionService');
-        conversionService.processFile(rows[0]); 
-    }
     
     await client.query('COMMIT');
     res.status(201).json({ ...rows[0], id: rows[0].file_id });
@@ -248,5 +243,28 @@ exports.getFileById = async (req, res) => {
   } catch (error) {
     console.error('Dosya getirme hatası:', error);
     res.status(500).json({ message: 'Sunucu hatası' });
+  }
+};
+
+
+exports.deleteFileRecord = async (req, res) => {
+  const { fileId } = req.params;
+
+  try {
+    // 1. Dosya var mı kontrol et (Opsiyonel ama iyi olur)
+    const checkFile = await pool.query('SELECT * FROM files WHERE file_id = $1', [fileId]);
+    if (checkFile.rows.length === 0) {
+        return res.status(404).json({ message: 'Dosya bulunamadı' });
+    }
+
+    // 2. Veritabanından sil
+    // (Not: Frontend zaten Firebase'den siliyor, biz sadece DB kaydını uçuruyoruz)
+    await pool.query('DELETE FROM files WHERE file_id = $1', [fileId]);
+
+    res.status(200).json({ message: 'Dosya kaydı başarıyla silindi' });
+
+  } catch (error) {
+    console.error('Dosya silme hatası:', error);
+    res.status(500).json({ message: 'Sunucu hatası, silinemedi.' });
   }
 };
