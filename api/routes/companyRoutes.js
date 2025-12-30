@@ -16,4 +16,6 @@ router.post('/', companyController.createCompany);
 // YENİ: GET /api/companies/:companyId/projects (Bir firmanın proje geçmişi)
 router.get('/:companyId/projects', companyController.getProjectsForCompany);
 
+router.post('/bulk', authMiddleware, companyController.bulkCreateCompanies);
+
 module.exports = router;

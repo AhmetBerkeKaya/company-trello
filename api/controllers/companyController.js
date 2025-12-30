@@ -103,3 +103,126 @@ exports.getProjectsForCompany = async (req, res) => {
     res.status(500).json({ message: 'Sunucu hatası' });
   }
 };
+
+
+exports.bulkCreateCompanies = async (req, res) => {
+  const { companies } = req.body; 
+  // companies dizisi artık şöyle gelecek: 
+  // [{ name: "ABC Ltd", tax_no: "123", address: "..." }, ...]
+  
+  const createdByUserId = req.user.userId;
+  const createdByName = req.user.name;
+
+  if (!companies || !Array.isArray(companies) || companies.length === 0) {
+    return res.status(400).json({ message: 'Liste boş veya geçersiz.' });
+  }
+
+  const client = await pool.connect();
+  
+  try {
+    await client.query('BEGIN');
+    
+    const results = { successCount: 0, failCount: 0, errors: [] };
+
+    for (const company of companies) {
+      // Backend Validasyonu (Son güvenlik kapısı)
+      if (!company.name) {
+        results.failCount++;
+        results.errors.push({ row: company, error: 'Firma Adı eksik' });
+        continue;
+      }
+
+      try {
+        const query = `
+          INSERT INTO companies (
+            name, address, tax_no, tax_office, mersis_no, phone, email, authorized_person,
+            created_by_user_id, created_by_name
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        `;
+        
+        await client.query(query, [
+          company.name, 
+          company.address || null, 
+          company.tax_no || null,
+          company.tax_office || null, 
+          company.mersis_no || null,
+          company.phone || null,
+          company.email || null,
+          company.authorized_person || null,
+          createdByUserId, 
+          createdByName
+        ]);
+        
+        results.successCount++;
+      } catch (err) {
+        if (err.code === '23505') { // Unique constraint (İsim çakışması)
+            results.failCount++;
+            results.errors.push({ name: company.name, error: 'Bu firma zaten kayıtlı' });
+        } else {
+            console.error(err);
+            results.failCount++;
+            results.errors.push({ name: company.name, error: 'Veritabanı hatası' });
+        }
+      }
+    }
+
+    await client.query('COMMIT');
+    res.status(200).json({ message: 'İşlem tamamlandı', ...results });
+
+  } catch (error) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ message: 'Sunucu hatası: ' + error.message });
+  } finally {
+    client.release();
+  }
+};
+
+
+exports.createCompany = async (req, res) => {
+  // Frontend'den gelen tüm alanları alıyoruz
+  const { name, tax_no, tax_office, mersis_no, phone, email, address, authorized_person } = req.body;
+  
+  const createdByUserId = req.user.userId;
+  const createdByName = req.user.name; 
+
+  if (!name) {
+    return res.status(400).json({ message: 'Firma adı gereklidir' });
+  }
+
+  try {
+    const query = `
+      INSERT INTO companies (
+        name, tax_no, tax_office, mersis_no, phone, email, address, authorized_person,
+        created_by_user_id, created_by_name
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      RETURNING * `;
+    
+    const { rows } = await pool.query(query, [
+      name,
+      tax_no || null,
+      tax_office || null,
+      mersis_no || null,
+      phone || null,
+      email || null,
+      address || null,
+      authorized_person || null,
+      createdByUserId,
+      createdByName
+    ]);
+
+    const newCompany = rows[0];
+    
+    res.status(201).json({
+      ...newCompany,
+      id: newCompany.company_id
+    });
+  } catch (error) {
+    if (error.code === '23505') { 
+      return res.status(409).json({ message: 'Bu isimde bir firma zaten mevcut' });
+    }
+    console.error('Firma oluşturma hatası:', error);
+    res.status(500).json({ message: 'Sunucu hatası' });
+  }
+};

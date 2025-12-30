@@ -53,3 +53,11 @@ module.exports.restrictToManager = (req, res, next) => {
     }
     next();
 };
+
+
+module.exports.preventObserverWrite = (req, res, next) => {
+  if (req.user.role === 'observer') {
+    return res.status(403).json({ message: 'Gözlemci hesabı ile değişiklik yapamazsınız.' });
+  }
+  next();
+};
