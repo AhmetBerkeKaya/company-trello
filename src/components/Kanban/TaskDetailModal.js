@@ -21,7 +21,7 @@ const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message }) => {
   );
 };
 
-const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, canEdit, canDeleteProp }) => {
+const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, canEdit: canEditProp, canDeleteProp }) => {
   const { userData } = useAuth();
   const [activeTab, setActiveTab] = useState('details');
   const [title, setTitle] = useState(task?.title || '');
@@ -29,7 +29,7 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, canEdit, canDeletePr
   const [assignee, setAssignee] = useState(task?.assignee_user_id || '');
   const [dueDate, setDueDate] = useState('');
   
-  // YENİ: Müşteri Görünürlüğü ve Bütçe State'leri
+  // Müşteri Görünürlüğü ve Bütçe State'leri
   const [isVisibleToClient, setIsVisibleToClient] = useState(false);
   const [estimatedCost, setEstimatedCost] = useState(0);
   const [actualCost, setActualCost] = useState(0);
@@ -41,11 +41,18 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, canEdit, canDeletePr
   const [assignedUser, setAssignedUser] = useState(null); 
   const [showDeleteModal, setShowDeleteModal] = useState(false);
 
-  const canDeleteTask = canDeleteProp;
-  const canAssignUser = userData?.role === 'admin' || userData?.role === 'manager';
+  // ROL KONTROLLERİ
+  const isObserver = userData?.role === 'observer'; // Gözlemci mi?
+
+  // Gözlemci ise düzenlemeyi ve silmeyi zorla kapat
+  const canEdit = canEditProp && !isObserver;
+  const canDeleteTask = canDeleteProp && !isObserver;
   
-  // YENİ: Bütçe yönetme yetkisi (Sadece yönetici ve proje yöneticisi)
-  const canManageBudget = userData?.role === 'admin' || userData?.role === 'manager';
+  // Atama yetkisi: Admin/Manager ve Gözlemci DEĞİL
+  const canAssignUser = (userData?.role === 'admin' || userData?.role === 'manager') && !isObserver;
+  
+  // Bütçe yönetimi: Admin/Manager ve Gözlemci DEĞİL
+  const canManageBudget = (userData?.role === 'admin' || userData?.role === 'manager') && !isObserver;
 
   useEffect(() => {
     if (task && isOpen) {
@@ -67,6 +74,7 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, canEdit, canDeletePr
   }, [task, isOpen]);
 
   const handleDeleteTask = async () => {
+    if (isObserver) return;
     setLoading(true);
     try {
       await api.delete(`/tasks/${task.task_id}`);
@@ -108,7 +116,7 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, canEdit, canDeletePr
   };
 
   const handleSave = async () => {
-    if (!task || !canEdit) return;
+    if (!task || !canEdit || isObserver) return;
     setLoading(true);
     try {
       await api.put(`/tasks/${task.task_id}`, {
@@ -117,7 +125,6 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, canEdit, canDeletePr
         assignee: assignee || null,
         dueDate: dueDate || null,
         isVisibleToClient: isVisibleToClient,
-        // YENİ: Bütçe verilerini backend'e gönder (yetkisi varsa)
         estimatedCost: canManageBudget ? estimatedCost : undefined,
         actualCost: canManageBudget ? actualCost : undefined
       });
@@ -135,7 +142,7 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, canEdit, canDeletePr
   };
 
   const handleAddComment = async () => {
-    if (!newComment.trim() || !task) return;
+    if (!newComment.trim() || !task || isObserver) return;
     try {
       setLoading(true);
       await api.post(`/tasks/${task.task_id}/comments`, { text: newComment, projectId: task.project_id });
@@ -196,7 +203,7 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, canEdit, canDeletePr
             <div className="space-y-6">
               
               {/* Görünürlük Ayarı (Sadece Edit Modunda ve Yetkili Kişiler İçin) */}
-              {canEdit && (userData.role === 'admin' || userData.role === 'manager') && (
+              {canEdit && (userData.role === 'admin' || userData.role === 'manager') && !isObserver && (
                 <div className="p-4 bg-purple-50 dark:bg-purple-900/10 rounded-lg border border-purple-100 dark:border-purple-800">
                     <label className="flex items-center space-x-3 cursor-pointer">
                         <input 
@@ -213,8 +220,8 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, canEdit, canDeletePr
                 </div>
               )}
 
-              {/* FİNANSAL BİLGİLER (YENİ - Sadece Yetkiliye) */}
-              {canManageBudget && (
+              {/* FİNANSAL BİLGİLER */}
+              {(canManageBudget || isObserver) && (estimatedCost > 0 || actualCost > 0 || canManageBudget) && (
                 <div className="bg-gray-50 dark:bg-gray-700/50 p-4 rounded-lg border border-gray-200 dark:border-gray-600">
                     <h3 className="text-sm font-bold text-gray-900 dark:text-white mb-3 flex items-center">
                         💰 Bütçe & Hakediş
@@ -222,27 +229,35 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, canEdit, canDeletePr
                     <div className="grid grid-cols-2 gap-4">
                         <div>
                             <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Tahmini Maliyet (₺)</label>
-                            <input 
-                                type="number" 
-                                min="0"
-                                step="0.01"
-                                value={estimatedCost}
-                                onChange={(e) => setEstimatedCost(e.target.value)}
-                                className="w-full border rounded p-2 text-sm dark:bg-gray-700 dark:text-white dark:border-gray-500"
-                                placeholder="0.00"
-                            />
+                            {canManageBudget ? (
+                                <input 
+                                    type="number" 
+                                    min="0"
+                                    step="0.01"
+                                    value={estimatedCost}
+                                    onChange={(e) => setEstimatedCost(e.target.value)}
+                                    className="w-full border rounded p-2 text-sm dark:bg-gray-700 dark:text-white dark:border-gray-500"
+                                    placeholder="0.00"
+                                />
+                            ) : (
+                                <div className="text-sm font-bold dark:text-white">{estimatedCost}</div>
+                            )}
                         </div>
                         <div>
                             <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Gerçekleşen (₺)</label>
-                            <input 
-                                type="number" 
-                                min="0"
-                                step="0.01"
-                                value={actualCost}
-                                onChange={(e) => setActualCost(e.target.value)}
-                                className="w-full border rounded p-2 text-sm dark:bg-gray-700 dark:text-white dark:border-gray-500"
-                                placeholder="0.00"
-                            />
+                            {canManageBudget ? (
+                                <input 
+                                    type="number" 
+                                    min="0"
+                                    step="0.01"
+                                    value={actualCost}
+                                    onChange={(e) => setActualCost(e.target.value)}
+                                    className="w-full border rounded p-2 text-sm dark:bg-gray-700 dark:text-white dark:border-gray-500"
+                                    placeholder="0.00"
+                                />
+                            ) : (
+                                <div className="text-sm font-bold dark:text-white">{actualCost}</div>
+                            )}
                         </div>
                     </div>
                     {/* Kar/Zarar Göstergesi */}
@@ -312,10 +327,14 @@ const TaskDetailModal = ({ task, isOpen, onClose, onUpdate, canEdit, canDeletePr
                 ))}
                 {comments.length === 0 && <p className="text-center text-gray-500 text-sm">Henüz yorum yok</p>}
               </div>
-              <div className="flex space-x-2">
-                 <input value={newComment} onChange={e => setNewComment(e.target.value)} className="flex-1 border p-2 rounded dark:bg-gray-700 dark:text-white dark:border-gray-600" placeholder="Yorum yaz..." />
-                 <button onClick={handleAddComment} disabled={!newComment.trim() || loading} className="bg-blue-600 text-white px-4 rounded hover:bg-blue-700 disabled:opacity-50">Gönder</button>
-              </div>
+              
+              {/* Yorum Yapma Alanı: Gözlemciye Gizli */}
+              {!isObserver && (
+                  <div className="flex space-x-2">
+                     <input value={newComment} onChange={e => setNewComment(e.target.value)} className="flex-1 border p-2 rounded dark:bg-gray-700 dark:text-white dark:border-gray-600" placeholder="Yorum yaz..." />
+                     <button onClick={handleAddComment} disabled={!newComment.trim() || loading} className="bg-blue-600 text-white px-4 rounded hover:bg-blue-700 disabled:opacity-50">Gönder</button>
+                  </div>
+              )}
             </div>
           )}
           

@@ -4,19 +4,20 @@ import api from '../../api/axios';
 import { useAuth } from '../../contexts/AuthContext';
 import DraggableTask from './Task';
 
-const Column = ({ column, projectId, onTaskUpdate, userRole, currentUserId }) => {
+const Column = ({ column, projectId, onTaskUpdate, userRole, currentUserId, isObserver }) => {
   const { userData } = useAuth();
   const [isAddingTask, setIsAddingTask] = useState(false);
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [newTaskAssignee, setNewTaskAssignee] = useState('');
   
-  // YENİ: Müşteri Görünürlüğü State'i
+  // Müşteri Görünürlüğü State'i
   const [isClientVisible, setIsClientVisible] = useState(false); 
 
   const [projectMembers, setProjectMembers] = useState([]);
   const [loadingMembers, setLoadingMembers] = useState(false);
 
-  const canAddTask = userRole === 'admin' || userRole === 'manager';
+  // GÖZLEMCİ KONTROLÜ: Admin/Manager olsa bile observer ise ekleyemez
+  const canAddTask = (userRole === 'admin' || userRole === 'manager') && !isObserver;
   const isLocked = column.is_locked;
 
   useEffect(() => {
@@ -45,13 +46,12 @@ const Column = ({ column, projectId, onTaskUpdate, userRole, currentUserId }) =>
         status: column.id,
         projectId: projectId,
         assignee: newTaskAssignee || null,
-        isVisibleToClient: isClientVisible // YENİ: Backend'e gönderiyoruz
+        isVisibleToClient: isClientVisible
       });
       
-      // Formu temizle
       setNewTaskTitle('');
       setNewTaskAssignee('');
-      setIsClientVisible(false); // Reset
+      setIsClientVisible(false);
       setIsAddingTask(false);
       onTaskUpdate();
     } catch (error) {
@@ -88,7 +88,8 @@ const Column = ({ column, projectId, onTaskUpdate, userRole, currentUserId }) =>
         </div>
 
         <div className="flex items-center gap-1">
-           {!isLocked && (userRole === 'admin' || userRole === 'manager') && (
+           {/* SİLME BUTONU: Kilitli değilse, Yetkili ise VE Gözlemci DEĞİLSE görünür */}
+           {!isLocked && (userRole === 'admin' || userRole === 'manager') && !isObserver && (
             <button 
               onClick={handleDeleteColumn}
               className="text-gray-400 hover:text-red-500 p-1 transition-colors"
@@ -100,6 +101,7 @@ const Column = ({ column, projectId, onTaskUpdate, userRole, currentUserId }) =>
             </button>
           )}
 
+          {/* EKLEME BUTONU: Gözlemciye gizli */}
           {canAddTask && (
             <button
               onClick={() => setIsAddingTask(true)}
@@ -143,7 +145,6 @@ const Column = ({ column, projectId, onTaskUpdate, userRole, currentUserId }) =>
                 )}
               </select>
 
-              {/* YENİ: Müşteri Görünürlüğü Checkbox */}
               <label className="flex items-center space-x-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-600 p-1 rounded">
                 <input 
                     type="checkbox"
@@ -187,6 +188,7 @@ const Column = ({ column, projectId, onTaskUpdate, userRole, currentUserId }) =>
             onUpdate={onTaskUpdate}
             userRole={userRole}
             currentUserId={currentUserId}
+            isObserver={isObserver} // Gözlemci bilgisini karta da iletiyoruz
           />
         ))}
 

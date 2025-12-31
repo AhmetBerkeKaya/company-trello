@@ -1,3 +1,4 @@
+// src/components/Viewer/FileExplorer.js
 import React, { useState, useEffect } from 'react';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { storage } from '../../firebase/config';
@@ -27,13 +28,16 @@ const FileExplorer = ({ projectId, onSelectPlan, selectedPlanId, onUploadSuccess
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
 
-  // Versiyon Geçmişi Modalı State'i (YENİ)
-  const [showHistoryFor, setShowHistoryFor] = useState(null); // Hangi dosyanın geçmişine bakıyoruz?
+  // Versiyon Geçmişi Modalı State'i
+  const [showHistoryFor, setShowHistoryFor] = useState(null); 
 
   // Upload State
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadStatusText, setUploadStatusText] = useState('');
+
+  // ROL KONTROLÜ
+  const isObserver = userData?.role === 'observer';
 
   useEffect(() => {
     if (projectId) fetchFiles();
@@ -54,6 +58,7 @@ const FileExplorer = ({ projectId, onSelectPlan, selectedPlanId, onUploadSuccess
 
   // --- KLASÖR OLUŞTURMA ---
   const startCreateFolder = () => {
+    if (isObserver) return; // Gözlemci oluşturamaz
     setIsCreatingFolder(true);
     setNewFolderName('');
   };
@@ -66,7 +71,6 @@ const FileExplorer = ({ projectId, onSelectPlan, selectedPlanId, onUploadSuccess
     if (selectedItem && selectedItem.is_folder) { targetParentId = selectedItem.file_id; }
 
     try {
-      // Backend'deki URL null hatasını düzelttiysen burası çalışır
       await api.post(`/projects/${projectId}/folders`, {
         name: newFolderName,
         parentFolderId: targetParentId
@@ -119,7 +123,6 @@ const FileExplorer = ({ projectId, onSelectPlan, selectedPlanId, onUploadSuccess
           const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
           setUploadStatusText('Kaydediliyor...');
           
-          // Versiyonlama backend'de otomatik halledilir (aynı isimde dosya varsa)
           await api.post(`/projects/${projectId}/plans`, {
             name: file.name,
             url: downloadURL,
@@ -160,10 +163,16 @@ const FileExplorer = ({ projectId, onSelectPlan, selectedPlanId, onUploadSuccess
       setCurrentFolderId(currentFolderObj ? currentFolderObj.parent_folder_id : null);
   };
 
-  // --- SÜRÜKLE BIRAK ---
-  const handleDragStart = (e, fileId) => e.dataTransfer.setData("fileId", fileId);
+  // --- SÜRÜKLE BIRAK (GÖZLEMCİYE KAPALI) ---
+  const handleDragStart = (e, fileId) => {
+      if (isObserver) return; // Engelle
+      e.dataTransfer.setData("fileId", fileId);
+  };
   const handleDrop = async (e, targetId) => {
-    e.preventDefault(); e.stopPropagation();
+    e.preventDefault(); 
+    e.stopPropagation();
+    if (isObserver) return; // Engelle
+
     const fileId = e.dataTransfer.getData("fileId");
     if (!fileId || fileId === targetId) return;
     try {
@@ -194,20 +203,15 @@ const FileExplorer = ({ projectId, onSelectPlan, selectedPlanId, onUploadSuccess
     );
   };
 
-  // --- FİLTRELEME MANTIĞI (ÖNEMLİ) ---
-  // Sadece şu anki klasörde olanları VE (Klasör olanları YA DA Güncel Versiyon olanları) göster
   const currentFiles = files.filter(f => 
       f.parent_folder_id === currentFolderId && 
       (f.is_folder || f.is_current_version) 
   ).sort((a, b) => (a.is_folder === b.is_folder ? 0 : a.is_folder ? -1 : 1));
 
-  // --- GEÇMİŞ VERSİYONLARI BULMA ---
   const getFileHistory = (file) => {
-      // İsmi aynı olan, klasör olmayan ve aynı klasörde bulunan tüm dosyalar (eskiler dahil)
-      // Daha güvenli yöntem: parent_file_id zincirini takip etmek ama şimdilik isim ve klasör eşleşmesi yeterli.
       return files
         .filter(f => f.name === file.name && !f.is_folder && f.parent_folder_id === file.parent_folder_id)
-        .sort((a, b) => b.version - a.version); // En yüksek versiyon en üstte
+        .sort((a, b) => b.version - a.version); 
   };
 
   return (
@@ -217,11 +221,18 @@ const FileExplorer = ({ projectId, onSelectPlan, selectedPlanId, onUploadSuccess
       <div className="flex justify-between items-center mb-2 pb-2 border-b dark:border-gray-700">
         <h3 className="font-bold text-gray-700 dark:text-gray-200 text-sm">Proje Dosyaları</h3>
         <div className="flex gap-1">
-            <button onClick={startCreateFolder} className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded text-gray-600 dark:text-gray-300" title="Yeni Klasör">📁+</button>
-            <label className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded cursor-pointer text-gray-600 dark:text-gray-300" title="Dosya Yükle">
-                ☁️+
-                <input type="file" className="hidden" onChange={handleFileUpload} disabled={isUploading} />
-            </label>
+            {/* Gözlemci Değilse Butonları Göster */}
+            {!isObserver ? (
+                <>
+                    <button onClick={startCreateFolder} className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded text-gray-600 dark:text-gray-300" title="Yeni Klasör">📁+</button>
+                    <label className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded cursor-pointer text-gray-600 dark:text-gray-300" title="Dosya Yükle">
+                        ☁️+
+                        <input type="file" className="hidden" onChange={handleFileUpload} disabled={isUploading} />
+                    </label>
+                </>
+            ) : (
+                <span className="text-[10px] bg-gray-100 text-gray-500 px-2 py-1 rounded dark:bg-gray-700">İzleme Modu</span>
+            )}
         </div>
       </div>
 
@@ -263,7 +274,8 @@ const FileExplorer = ({ projectId, onSelectPlan, selectedPlanId, onUploadSuccess
 
                         return (
                             <div key={file.file_id}
-                                draggable onDragStart={(e) => handleDragStart(e, file.file_id)}
+                                draggable={!isObserver} // Gözlemci taşıyamaz
+                                onDragStart={(e) => handleDragStart(e, file.file_id)}
                                 onDrop={(e) => file.is_folder ? handleDrop(e, file.file_id) : null} onDragOver={handleDragOver}
                                 onClick={() => handleItemClick(file)} onDoubleClick={() => handleItemDoubleClick(file)}
                                 className={`flex items-center justify-between p-2 rounded cursor-pointer border border-transparent text-sm group
@@ -334,7 +346,7 @@ const FileExplorer = ({ projectId, onSelectPlan, selectedPlanId, onUploadSuccess
       )}
 
       <div className="text-[10px] text-gray-400 text-center mt-1 border-t pt-1">
-         Aynı isimle yüklenen dosyalar versiyonlanır
+         {!isObserver ? 'Aynı isimle yüklenen dosyalar versiyonlanır' : 'Dosya yükleme yetkiniz yok'}
       </div>
     </div>
   );

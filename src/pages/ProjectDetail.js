@@ -12,6 +12,7 @@ const ProjectDetail = () => {
     const navigate = useNavigate();
     const { userData } = useAuth();
 
+    // --- STATE TANIMLARI ---
     const [project, setProject] = useState(null);
     const [phases, setPhases] = useState([]);
     const [activePhaseId, setActivePhaseId] = useState(null);
@@ -20,26 +21,35 @@ const ProjectDetail = () => {
     const [error, setError] = useState('');
     const [activeTab, setActiveTab] = useState('board');
 
-    // İstatistikler (Bütçe alanı eklendi)
+    // İstatistikler
     const [projectStats, setProjectStats] = useState({
-        totalTasks: 0,
-        completedTasks: 0,
-        inProgressTasks: 0,
-        todoTasks: 0,
-        phaseStats: [],
-        budget: { total: 0, spent: 0, remaining: 0, currency: '₺' } // YENİ
+        totalTasks: 0, completedTasks: 0, inProgressTasks: 0, todoTasks: 0,
+        phaseStats: [], budget: { total: 0, spent: 0, remaining: 0 }
     });
-    const [loadingStats, setLoadingStats] = useState(false);
 
-    const [canEditProject, setCanEditProject] = useState(false);
+    // Modal State'leri
     const [showDeleteModal, setShowDeleteModal] = useState(false);
-    const [showCompleteModal, setShowCompleteModal] = useState(false);
+    const [showCompleteModal, setShowCompleteModal] = useState(false); // Proje Tamamlama Onayı
     const [showPhaseModal, setShowPhaseModal] = useState(false);
     const [newPhaseName, setNewPhaseName] = useState('');
+    
+    // Rapor Modalı State'leri
+    const [showReportModal, setShowReportModal] = useState(false);
+    const [isGeneratingReport, setIsGeneratingReport] = useState(false);
+    const [reportOptions, setReportOptions] = useState({
+        financials: true, risks: true, phases: true, weekly: true
+    });
 
-    // ROL KONTROLLERİ
+    // --- ROL VE YETKİ KONTROLLERİ ---
     const isClient = userData?.role === 'client';
-    const canViewSettings = (userData?.role === 'admin' || userData?.role === 'manager') && !isClient;
+    const isObserver = userData?.role === 'observer';
+    
+    // Proje Düzenleme Yetkisi (Status değiştirme, Faz ekleme vb.)
+    // Sadece Admin ve Manager yapabilir.
+    const canEditProject = !isClient && !isObserver && (userData?.role === 'admin' || userData?.role === 'manager');
+
+    // Ayarlar Sekmesi Görünürlüğü
+    const canViewSettings = canEditProject;
 
     useEffect(() => {
         if (projectId && userData) fetchProjectData();
@@ -48,40 +58,28 @@ const ProjectDetail = () => {
     const fetchProjectData = async () => {
         try {
             setLoading(true);
-            setError('');
-            const [projectRes, membersRes, phasesRes] = await Promise.all([
+            const [pRes, mRes, phRes] = await Promise.all([
                 api.get(`/projects/${projectId}`),
                 api.get(`/projects/${projectId}/members`),
                 api.get(`/projects/${projectId}/phases`)
             ]);
-            setProject(projectRes.data);
-            setProjectMembers(membersRes.data);
-            setPhases(phasesRes.data);
-            if (phasesRes.data.length > 0) setActivePhaseId(phasesRes.data[0].id);
+            setProject(pRes.data);
+            setProjectMembers(mRes.data);
+            setPhases(phRes.data);
+            if (phRes.data.length > 0 && !activePhaseId) setActivePhaseId(phRes.data[0].id);
             refreshProjectStats();
-        } catch (error) {
-            console.error(error);
-            if (error.response && error.response.status === 403) setError('Bu projeyi görüntüleme yetkiniz yok.');
-            else setError('Proje bulunamadı');
+        } catch (e) {
+            if (e.response?.status === 403) setError('Yetkisiz erişim'); else setError('Proje bulunamadı');
         } finally { setLoading(false); }
     };
 
     const refreshProjectStats = async () => {
-        if (!projectId) return;
-        setLoadingStats(true);
-        try {
-            const statsRes = await api.get(`/projects/${projectId}/stats`);
-            setProjectStats(statsRes.data);
-        } catch (error) { console.error(error); } finally { setLoadingStats(false); }
+        try { const res = await api.get(`/projects/${projectId}/stats`); setProjectStats(res.data); } catch(e){}
     };
 
-    useEffect(() => {
-        if (project && userData) {
-            const canEdit = !isClient && (userData.role === 'admin' || userData.role === 'manager' || project.created_by_user_id === userData.user_id);
-            setCanEditProject(canEdit);
-        }
-    }, [project, userData]);
+    // --- AKSİYONLAR ---
 
+    // 1. Faz (Disiplin) Yönetimi
     const handleAddPhase = async () => {
         if (!newPhaseName.trim()) return;
         try {
@@ -90,346 +88,366 @@ const ProjectDetail = () => {
             setActivePhaseId(res.data.id);
             setNewPhaseName('');
             setShowPhaseModal(false);
-        } catch (error) { alert('Faz eklenirken hata oluştu'); }
+        } catch (e) { alert('Hata oluştu'); }
     };
 
-    const handleDeletePhase = async (phaseId) => {
-        if (!window.confirm("Bu fazı ve içindeki tüm görevleri silmek istediğinize emin misiniz?")) return;
+    const handleDeletePhase = async (pid) => {
+        if(!window.confirm('Bu disiplini ve içindeki görevleri silmek istiyor musunuz?')) return;
         try {
-            await api.delete(`/phases/${phaseId}`);
-            const newPhases = phases.filter(p => p.id !== phaseId);
-            setPhases(newPhases);
-            if (newPhases.length > 0) setActivePhaseId(newPhases[0].id);
-            else setActivePhaseId(null);
-        } catch (error) { alert('Faz silinemedi'); }
-    }
-
-    const handleUpdateProjectStatus = async (newStatus) => {
-        if (!canEditProject) return;
-        if (newStatus === 'completed') { setShowCompleteModal(true); return; }
-        try {
-            const response = await api.put(`/projects/${projectId}/status`, { status: newStatus });
-            setProject(response.data);
-            alert(`Durum güncellendi: ${getStatusText(newStatus)}`);
-        } catch (error) { alert('Hata oluştu'); }
+            await api.delete(`/phases/${pid}`);
+            setPhases(prev => prev.filter(p => p.id !== pid));
+            if(phases.length > 1) setActivePhaseId(phases[0].id); else setActivePhaseId(null);
+        } catch(e) { alert('Silinemedi'); }
     };
 
-    const handleCompleteProject = async () => {
-        try {
-            const response = await api.put(`/projects/${projectId}/status`, { status: 'completed' });
-            setProject(response.data);
-            setShowCompleteModal(false);
-        } catch (error) { alert('Hata oluştu'); }
-    };
-
-    const handleDeleteProject = async () => {
-        try {
-            await api.delete(`/projects/${projectId}`);
-            setShowDeleteModal(false);
-            navigate('/projects');
-        } catch (error) { alert('Hata oluştu'); }
-    };
-
-    const getStatusClass = (status) => {
-        if (status === 'active') return 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-300';
-        if (status === 'completed') return 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300';
-        return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-300';
-    };
-    const getStatusText = (status) => (status === 'active' ? 'Aktif' : status === 'completed' ? 'Tamamlandı' : 'Beklemede');
-
-    const handleDownloadReport = async () => {
-        try {
-            // Butonu loading durumuna sokabilirsin
-            const response = await api.get(`/reports/project/${projectId}`, {
-                responseType: 'blob' // ÖNEMLİ: Dosya geleceğini belirtiyoruz
-            });
-
-            // Dosyayı tarayıcıda indirtme işlemi (Native Yöntem)
-            const url = window.URL.createObjectURL(new Blob([response.data]));
-            const link = document.createElement('a');
-            link.href = url;
-            link.setAttribute('download', `ProjeRaporu-${projectId}.pdf`);
-            document.body.appendChild(link);
-            link.click();
-            link.remove();
-            window.URL.revokeObjectURL(url); // Temizlik
-
-        } catch (error) {
-            console.error("Rapor indirme hatası", error);
-            alert("Rapor oluşturulurken bir hata oluştu.");
+    // 2. Proje Durum Güncelleme (Header Dropdown'ı için)
+    const handleStatusChange = async (e) => {
+        const newStatus = e.target.value;
+        if (newStatus === 'completed') {
+            setShowCompleteModal(true); // Onay modalı aç
+        } else {
+            // Direkt güncelle
+            updateStatusAPI(newStatus);
         }
     };
 
-    if (loading) return <div className="flex justify-center h-64 items-center"><LoadingSpinner size="large" /></div>;
-    if (error) return <div className="text-center p-8 text-red-500">{error}</div>;
+    const updateStatusAPI = async (status) => {
+        try {
+            const res = await api.put(`/projects/${projectId}/status`, { status });
+            setProject(res.data);
+            setShowCompleteModal(false);
+        } catch (e) { alert('Durum güncellenemedi'); }
+    };
+
+    // 3. Proje Silme
+    const handleDeleteProject = async () => {
+        try { await api.delete(`/projects/${projectId}`); navigate('/projects'); } catch(e){ alert('Silinemedi'); }
+    };
+
+    // 4. Rapor İndirme
+    const confirmDownloadReport = async () => {
+        setIsGeneratingReport(true);
+        try {
+            const query = new URLSearchParams({
+                includeFinancials: reportOptions.financials,
+                includeRisks: reportOptions.risks,
+                includePhases: reportOptions.phases,
+                includeWeekly: reportOptions.weekly
+            }).toString();
+
+            const response = await api.get(`/reports/project/${projectId}?${query}`, { responseType: 'blob' });
+            const url = window.URL.createObjectURL(new Blob([response.data]));
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', `ProjeRaporu-${project.name.replace(/\s+/g,'_')}.pdf`);
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.URL.revokeObjectURL(url);
+            setShowReportModal(false);
+        } catch (error) { alert("Rapor hatası: " + error.message); } 
+        finally { setIsGeneratingReport(false); }
+    };
+
+    // Görsel Yardımcılar
+    const getStatusColor = (s) => {
+        switch(s) {
+            case 'active': return 'bg-green-100 text-green-800 border-green-200';
+            case 'completed': return 'bg-gray-100 text-gray-800 border-gray-200';
+            case 'on-hold': return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+            default: return 'bg-gray-100 text-gray-800';
+        }
+    };
+
+    if (loading) return <div className="h-64 flex justify-center items-center"><LoadingSpinner size="large"/></div>;
+    if (error) return <div className="p-8 text-center text-red-500">{error}</div>;
     if (!project) return null;
 
     return (
         <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
-            {/* Header */}
-            <div className="mb-6">
-                <nav className="flex items-center space-x-2 text-sm text-gray-500 dark:text-gray-400 mb-4">
-                    <Link to="/projects">Projeler</Link> <span>›</span> <span className="text-gray-900 dark:text-white">{project.name}</span>
+            {/* --- HEADER (PROFESYONEL GÖRÜNÜM GERİ GELDİ) --- */}
+            <div className="mb-6 bg-white dark:bg-gray-800 p-6 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
+                <nav className="text-xs text-gray-500 mb-4 uppercase tracking-wider font-semibold">
+                    <Link to="/projects" className="hover:text-blue-600 transition-colors">Projeler</Link> <span className="mx-1">/</span> <span className="text-gray-900 dark:text-white">{project.name}</span>
                 </nav>
-                <div className="flex justify-between items-start">
+                
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                     <div>
-                        <h1 className="text-3xl font-bold text-gray-900 dark:text-white">{project.name}</h1>
-                        <p className="text-gray-600 dark:text-gray-400 mt-2">{project.description}</p>
+                        <div className="flex items-center gap-3">
+                            <h1 className="text-3xl font-bold text-gray-900 dark:text-white leading-tight">{project.name}</h1>
+                            {isObserver && (
+                                <span className="px-3 py-1 bg-purple-100 text-purple-800 text-xs font-bold rounded-full dark:bg-purple-900/30 dark:text-purple-300 border border-purple-200">
+                                    👁️ Gözlemci Modu
+                                </span>
+                            )}
+                        </div>
+                        <p className="text-gray-600 dark:text-gray-400 mt-2 text-sm max-w-2xl">{project.description}</p>
                     </div>
-                    <div className="flex items-center space-x-3">
-                        <span className={`px-3 py-1 text-sm rounded-full ${getStatusClass(project.status)}`}>
-                            {getStatusText(project.status)}
-                        </span>
-                        <button onClick={() => navigate('/projects')} className="bg-gray-100 px-4 py-2 rounded-lg hover:bg-gray-200 transition-colors">← Geri</button>
+
+                    <div className="flex items-center gap-3">
+                        {/* DURUM DEĞİŞTİRME DROPDOWN'I (Sadece Yetkililere) */}
+                        {canEditProject ? (
+                            <div className="relative">
+                                <select
+                                    value={project.status}
+                                    onChange={handleStatusChange}
+                                    className={`appearance-none pl-4 pr-10 py-2 rounded-lg font-medium text-sm border focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-blue-500 cursor-pointer transition-colors ${getStatusColor(project.status)} dark:bg-gray-700 dark:border-gray-600 dark:text-white`}
+                                >
+                                    <option value="active">🟢 Aktif</option>
+                                    <option value="on-hold">🟡 Beklemede</option>
+                                    <option value="completed">⚫ Tamamlandı</option>
+                                </select>
+                                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-600 dark:text-gray-300">
+                                    <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
+                                </div>
+                            </div>
+                        ) : (
+                            <span className={`px-4 py-2 rounded-lg text-sm font-medium border ${getStatusColor(project.status)}`}>
+                                {project.status === 'active' ? '🟢 Aktif' : project.status === 'completed' ? '⚫ Tamamlandı' : '🟡 Beklemede'}
+                            </span>
+                        )}
+
+                        <button onClick={() => navigate('/projects')} className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium transition-colors dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600">
+                            ← Geri
+                        </button>
                     </div>
                 </div>
             </div>
 
             {/* Tabs */}
-            <div className="mb-6 border-b border-gray-200 dark:border-gray-700">
-                <nav className="flex space-x-8 overflow-x-auto">
-                    {[
-                        { id: 'board', label: 'Proje Yönetimi', icon: '📋' },
-                        { id: 'viewer', label: 'Paftalar & 3D', icon: '🗺️' },
-                        { id: 'overview', label: 'Genel Bakış', icon: '📊' },
-                        ...(canViewSettings ? [{ id: 'settings', label: 'Ayarlar', icon: '⚙️' }] : [])
-                    ].map(tab => (
-                        <button
-                            key={tab.id}
-                            onClick={() => setActiveTab(tab.id)}
-                            className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors whitespace-nowrap ${activeTab === tab.id ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
-                                }`}
-                        >
-                            <span className="mr-2">{tab.icon}</span>{tab.label}
-                        </button>
-                    ))}
-                </nav>
+            <div className="border-b dark:border-gray-700 mb-6 flex space-x-6 overflow-x-auto">
+                {[{id:'board',l:'Yönetim',i:'📋'}, {id:'viewer',l:'Paftalar',i:'🗺️'}, {id:'overview',l:'Genel',i:'📊'}]
+                  .concat(canViewSettings ? [{id:'settings',l:'Ayarlar',i:'⚙️'}] : [])
+                  .map(t => (
+                    <button key={t.id} onClick={() => setActiveTab(t.id)} className={`py-3 px-1 border-b-2 font-medium text-sm whitespace-nowrap transition-colors ${activeTab===t.id?'border-blue-600 text-blue-600 dark:text-blue-400':'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}>
+                        <span className="mr-2">{t.i}</span>{t.l}
+                    </button>
+                ))}
             </div>
 
-            {/* BOARD */}
+            {/* --- İÇERİK ALANLARI --- */}
+
+            {/* 1. BOARD (KANBAN) */}
             {activeTab === 'board' && (
-                <div>
-                    <div className="flex items-center mb-4 overflow-x-auto pb-2 space-x-2">
-                        {phases.map(phase => (
-                            <div key={phase.id} className="relative group">
-                                <button
-                                    onClick={() => setActivePhaseId(phase.id)}
-                                    className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${activePhaseId === phase.id ? 'bg-blue-600 text-white shadow-md' : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-200 dark:border-gray-700'
-                                        }`}
-                                >
-                                    {phase.name}
+                <div className="h-[calc(100vh-280px)] flex flex-col">
+                    <div className="flex items-center mb-4 gap-2 overflow-x-auto pb-2 shrink-0">
+                        {phases.map(p => (
+                            <div key={p.id} className="relative group">
+                                <button onClick={() => setActivePhaseId(p.id)} className={`px-4 py-2 rounded-full text-sm font-medium border transition-all ${activePhaseId===p.id?'bg-blue-600 text-white shadow-md':'bg-white text-gray-700 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-200 dark:border-gray-600'}`}>
+                                    {p.name}
                                 </button>
                                 {canEditProject && phases.length > 1 && (
-                                    <button onClick={(e) => { e.stopPropagation(); handleDeletePhase(phase.id); }} className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-4 h-4 text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity" title="Fazı Sil">×</button>
+                                    <button onClick={(e) => { e.stopPropagation(); handleDeletePhase(p.id); }} className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-4 h-4 text-xs flex justify-center items-center opacity-0 group-hover:opacity-100 shadow-sm transition-opacity" title="Sil">×</button>
                                 )}
                             </div>
                         ))}
                         {canEditProject && (
-                            <button onClick={() => setShowPhaseModal(true)} className="px-3 py-2 rounded-full text-sm font-medium text-blue-600 border border-dashed border-blue-300 hover:bg-blue-50 whitespace-nowrap">+ Disiplin Ekle</button>
+                            <button onClick={() => setShowPhaseModal(true)} className="px-3 py-2 rounded-full border border-dashed border-blue-400 text-blue-600 text-sm hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors whitespace-nowrap">
+                                + Disiplin Ekle
+                            </button>
                         )}
                     </div>
-                    {activePhaseId ? (
-                        <Board projectId={projectId} phaseId={activePhaseId} userRole={userData?.role} currentUserId={userData?.user_id} onTaskMoveSuccess={refreshProjectStats} />
-                    ) : <div className="text-center py-10 text-gray-500">Henüz bir disiplin bulunmuyor.</div>}
+                    {activePhaseId ? 
+                        <div className="flex-1 overflow-hidden">
+                            <Board projectId={projectId} phaseId={activePhaseId} userRole={userData?.role} currentUserId={userData?.user_id} onTaskMoveSuccess={refreshProjectStats} isObserver={isObserver} /> 
+                        </div>
+                    : <div className="text-center py-20 text-gray-500">Henüz bir disiplin/faz bulunmuyor.</div>}
                 </div>
             )}
 
-            {/* VIEWER */}
+            {/* 2. VIEWER */}
             {activeTab === 'viewer' && <ViewerContainer projectId={projectId} />}
 
-            {/* OVERVIEW (GENEL BAKIŞ) */}
+            {/* 3. OVERVIEW */}
             {activeTab === 'overview' && (
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-
-                    {/* SOL KOLON: Üyeler - MÜŞTERİYE GİZLİ */}
                     {!isClient && (
-                        <div className="lg:col-span-1">
-                            <div className="bg-white dark:bg-gray-800 rounded-lg shadow dark:shadow-gray-900/50">
-                                <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-                                    <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Proje Ekibi</h2>
-                                </div>
-                                <div className="p-6">
-                                    {projectMembers.length === 0 ? (
-                                        <p className="text-gray-500 dark:text-gray-400 text-sm">Henüz üye atanmamış</p>
-                                    ) : (
-                                        <div className="space-y-4">
-                                            {projectMembers.map(member => (
-                                                <div key={member.user_id} className="flex items-center space-x-3">
-                                                    <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-full flex items-center justify-center text-white text-sm font-bold shadow-sm">
-                                                        {member.name?.charAt(0) || 'U'}
-                                                    </div>
-                                                    <div className="flex-1 min-w-0">
-                                                        <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{member.name}</p>
-                                                        <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{member.role} • {member.department || 'Genel'}</p>
-                                                    </div>
-                                                </div>
-                                            ))}
+                        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border border-gray-100 dark:border-gray-700">
+                            <h3 className="font-bold mb-4 dark:text-white text-lg">Proje Ekibi</h3>
+                            <div className="space-y-4 max-h-96 overflow-y-auto pr-2">
+                                {projectMembers.map(m => (
+                                    <div key={m.user_id} className="flex items-center gap-3 p-2 hover:bg-gray-50 dark:hover:bg-gray-700 rounded transition-colors">
+                                        <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-full flex items-center justify-center text-white font-bold shadow-sm">{m.name[0]}</div>
+                                        <div>
+                                            <div className="text-sm font-medium dark:text-white">{m.name}</div>
+                                            <div className="text-xs text-gray-500">{m.role} • {m.department||'Genel'}</div>
                                         </div>
-                                    )}
-                                </div>
+                                    </div>
+                                ))}
                             </div>
                         </div>
                     )}
-
-                    {/* SAĞ KOLON: İstatistikler */}
+                    
                     <div className={`space-y-6 ${isClient ? 'lg:col-span-3' : 'lg:col-span-2'}`}>
-                        {/* RAPOR BUTONU ALANI (YENİ) */}
+                        {/* Rapor Butonu */}
                         <div className="flex justify-end">
-                            <button
-                                onClick={handleDownloadReport}
-                                className="flex items-center space-x-2 bg-gray-800 hover:bg-gray-900 text-white px-4 py-2 rounded-lg transition-colors shadow-sm"
-                            >
-                                <span>📄</span>
-                                <span>PDF Rapor İndir</span>
+                            <button onClick={() => setShowReportModal(true)} className="bg-gray-900 hover:bg-black text-white px-5 py-2.5 rounded-lg shadow-lg hover:shadow-xl transition-all flex items-center gap-2 font-medium">
+                                <span className="text-xl">📄</span> Profesyonel Rapor Oluştur
                             </button>
                         </div>
-                        {/* 1. Özet Kartları */}
+                        
+                        {/* İstatistikler */}
                         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                            <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow text-center border-b-4 border-blue-500">
-                                <div className="text-3xl font-bold text-gray-800 dark:text-white">{projectStats.totalTasks}</div>
-                                <div className="text-xs text-gray-500 font-medium uppercase mt-1">Toplam İş</div>
-                            </div>
-                            <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow text-center border-b-4 border-green-500">
-                                <div className="text-3xl font-bold text-gray-800 dark:text-white">{projectStats.completedTasks}</div>
-                                <div className="text-xs text-gray-500 font-medium uppercase mt-1">Tamamlanan</div>
-                            </div>
-                            <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow text-center border-b-4 border-yellow-500">
-                                <div className="text-3xl font-bold text-gray-800 dark:text-white">{projectStats.inProgressTasks}</div>
-                                <div className="text-xs text-gray-500 font-medium uppercase mt-1">Devam Eden</div>
-                            </div>
-                            <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow text-center border-b-4 border-gray-300">
-                                <div className="text-3xl font-bold text-gray-800 dark:text-white">{projectStats.todoTasks}</div>
-                                <div className="text-xs text-gray-500 font-medium uppercase mt-1">Bekleyen</div>
-                            </div>
+                            <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border-b-4 border-blue-500"><div className="text-3xl font-bold text-gray-900 dark:text-white">{projectStats.totalTasks}</div><div className="text-xs text-gray-500 font-bold uppercase tracking-wide mt-1">Toplam İş</div></div>
+                            <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border-b-4 border-green-500"><div className="text-3xl font-bold text-gray-900 dark:text-white">{projectStats.completedTasks}</div><div className="text-xs text-gray-500 font-bold uppercase tracking-wide mt-1">Tamamlanan</div></div>
+                            <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border-b-4 border-yellow-500"><div className="text-3xl font-bold text-gray-900 dark:text-white">{projectStats.inProgressTasks}</div><div className="text-xs text-gray-500 font-bold uppercase tracking-wide mt-1">Süren</div></div>
+                            <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border-b-4 border-red-500"><div className="text-3xl font-bold text-gray-900 dark:text-white">{projectStats.todoTasks}</div><div className="text-xs text-gray-500 font-bold uppercase tracking-wide mt-1">Bekleyen</div></div>
                         </div>
-
-                        {/* 2. YENİ: FİNANSAL DURUM KARTI (Sadece Admin/Manager görsün ve Bütçe verisi varsa) */}
-                        {!isClient && (userData?.role === 'admin' || userData?.role === 'manager') && projectStats.budget && (
-                            <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border-t-4 border-indigo-500">
-                                <div className="flex justify-between items-center mb-4">
-                                    <h2 className="text-lg font-bold text-gray-900 dark:text-white">💰 Proje Bütçesi</h2>
-                                    <span className={`px-2 py-1 rounded text-xs font-bold ${projectStats.budget.remaining >= 0 ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                                        {projectStats.budget.remaining >= 0 ? 'Bütçe İçi' : 'Bütçe Aşıldı'}
-                                    </span>
-                                </div>
-
-                                <div className="grid grid-cols-3 gap-4 text-center divide-x divide-gray-200 dark:divide-gray-700">
-                                    <div>
-                                        <p className="text-xs text-gray-500 uppercase">Toplam Bütçe</p>
-                                        <p className="text-xl font-bold text-gray-800 dark:text-white">
-                                            {projectStats.budget.total.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}
-                                        </p>
-                                    </div>
-                                    <div>
-                                        <p className="text-xs text-gray-500 uppercase">Harcanan</p>
-                                        <p className="text-xl font-bold text-indigo-600">
-                                            {projectStats.budget.spent.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}
-                                        </p>
-                                    </div>
-                                    <div>
-                                        <p className="text-xs text-gray-500 uppercase">Kalan</p>
-                                        <p className={`text-xl font-bold ${projectStats.budget.remaining < 0 ? 'text-red-600' : 'text-green-600'}`}>
-                                            {projectStats.budget.remaining.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}
-                                        </p>
-                                    </div>
-                                </div>
-
-                                {/* Progress Bar */}
-                                <div className="mt-4">
-                                    <div className="flex justify-between text-xs mb-1">
-                                        <span className="dark:text-gray-300">Harcama Oranı</span>
-                                        <span className="dark:text-gray-300">%{projectStats.budget.total > 0 ? Math.round((projectStats.budget.spent / projectStats.budget.total) * 100) : 0}</span>
-                                    </div>
-                                    <div className="w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700">
-                                        <div
-                                            className={`h-2.5 rounded-full ${projectStats.budget.remaining < 0 ? 'bg-red-600' : 'bg-indigo-600'}`}
-                                            style={{ width: `${Math.min(100, (projectStats.budget.spent / (projectStats.budget.total || 1)) * 100)}%` }}
-                                        ></div>
-                                    </div>
+                        
+                        {/* Bütçe Kartı */}
+                        {!isClient && (userData?.role==='admin' || userData?.role==='manager' || isObserver) && projectStats.budget && (
+                            <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 relative overflow-hidden">
+                                <div className="absolute top-0 left-0 w-1 h-full bg-indigo-500"></div>
+                                <h3 className="font-bold mb-6 dark:text-white text-lg flex items-center gap-2">💰 Finansal Genel Bakış</h3>
+                                <div className="grid grid-cols-3 gap-6 text-center">
+                                    <div><div className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1">Toplam Bütçe</div><div className="text-xl font-bold text-gray-900 dark:text-white">{projectStats.budget.total.toLocaleString()} ₺</div></div>
+                                    <div><div className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1">Harcanan</div><div className="text-xl font-bold text-indigo-600">{projectStats.budget.spent.toLocaleString()} ₺</div></div>
+                                    <div><div className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1">Kalan</div><div className={`text-xl font-bold ${projectStats.budget.remaining<0?'text-red-600':'text-green-600'}`}>{projectStats.budget.remaining.toLocaleString()} ₺</div></div>
                                 </div>
                             </div>
                         )}
 
-                        {/* 3. Faz Detayları */}
-                        <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden">
-                            <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
-                                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Disiplin İlerlemeleri</h2>
-                                <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full dark:bg-blue-900 dark:text-blue-200">Canlı Veri</span>
+                        {/* 3. DİSİPLİN (FAZ) İLERLEMELERİ - BURASI GERİ GELDİ */}
+                        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
+                            <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-700/50 flex justify-between items-center">
+                                <h2 className="text-lg font-bold text-gray-900 dark:text-white">Disiplin İlerlemeleri</h2>
+                                <span className="text-xs bg-blue-100 text-blue-800 px-2.5 py-0.5 rounded-full font-medium dark:bg-blue-900 dark:text-blue-200">Canlı Veri</span>
                             </div>
                             <div className="divide-y divide-gray-100 dark:divide-gray-700">
                                 {projectStats.phaseStats && projectStats.phaseStats.length > 0 ? (
                                     projectStats.phaseStats.map((phase) => {
                                         const total = parseInt(phase.total_tasks);
                                         const completed = parseInt(phase.completed_tasks);
+                                        // Yüzdelik hesaplama
                                         const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
+                                        
                                         return (
-                                            <div key={phase.phase_id} className="p-6 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
+                                            <div key={phase.phase_id} className="p-5 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
                                                 <div className="flex justify-between items-center mb-2">
                                                     <div>
-                                                        <h3 className="font-bold text-gray-900 dark:text-white text-base">{phase.phase_name}</h3>
-                                                        <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 flex space-x-3">
+                                                        <h3 className="font-bold text-gray-900 dark:text-white">{phase.phase_name}</h3>
+                                                        <div className="text-xs text-gray-500 dark:text-gray-400 mt-1 flex space-x-3">
                                                             <span>✅ {completed} Biten</span>
                                                             <span>🚀 {phase.in_progress_tasks} Süren</span>
                                                             <span>📋 {phase.todo_tasks} Bekleyen</span>
                                                         </div>
                                                     </div>
-                                                    <div className="text-right"><span className="text-2xl font-bold text-gray-800 dark:text-white">{percentage}%</span></div>
+                                                    <div className="text-right">
+                                                        <span className="text-2xl font-bold text-gray-800 dark:text-white">{percentage}%</span>
+                                                    </div>
                                                 </div>
-                                                <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-3 overflow-hidden">
-                                                    <div className="bg-green-500 h-full rounded-full transition-all duration-500 ease-out relative" style={{ width: `${percentage}%` }}>
-                                                        <div className="absolute top-0 left-0 bottom-0 right-0 bg-white opacity-20 w-full h-full animate-pulse"></div>
+                                                
+                                                {/* Progress Bar */}
+                                                <div className="w-full bg-gray-100 dark:bg-gray-600 rounded-full h-2.5 overflow-hidden">
+                                                    <div 
+                                                        className="bg-green-500 h-full rounded-full transition-all duration-700 ease-out relative" 
+                                                        style={{ width: `${percentage}%` }}
+                                                    >
+                                                        {/* Parlama efekti */}
+                                                        <div className="absolute top-0 left-0 bottom-0 right-0 bg-white opacity-20 w-full h-full"></div>
                                                     </div>
                                                 </div>
                                             </div>
                                         );
                                     })
-                                ) : <div className="p-8 text-center text-gray-500">Henüz veri yok.</div>}
+                                ) : <div className="p-8 text-center text-gray-500">Henüz disiplin verisi yok.</div>}
                             </div>
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* SETTINGS (Müşteriye Gizli) */}
+            {/* 4. SETTINGS */}
             {activeTab === 'settings' && canViewSettings && (
-                <div className="bg-white dark:bg-gray-800 p-6 rounded shadow">
-                    <h3 className="font-bold text-red-600 mb-4">Yönetici Paneli</h3>
-                    <button onClick={() => setShowDeleteModal(true)} className="bg-red-600 text-white px-4 py-2 rounded">Projeyi Sil</button>
+                <div className="bg-white dark:bg-gray-800 p-8 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 max-w-2xl mx-auto mt-8">
+                    <h3 className="text-xl font-bold text-red-600 mb-6 flex items-center gap-2">⚠️ Tehlikeli Bölge</h3>
+                    <p className="text-gray-600 dark:text-gray-300 mb-6">Bu projeyi sildiğinizde, projeye ait tüm görevler, dosyalar ve geçmiş veriler kalıcı olarak silinecektir. Bu işlem geri alınamaz.</p>
+                    <div className="flex justify-end">
+                        <button onClick={() => setShowDeleteModal(true)} className="bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 px-6 py-3 rounded-lg font-bold transition-colors">
+                            Projeyi Kalıcı Olarak Sil
+                        </button>
+                    </div>
                 </div>
             )}
 
-            {/* Modallar */}
+            {/* --- MODALLAR --- */}
+            
+            {/* Rapor Seçenekleri Modalı */}
+            {showReportModal && (
+                <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+                    <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md animate-in fade-in zoom-in duration-200">
+                        <div className="p-6 border-b dark:border-gray-700 flex justify-between items-center">
+                            <h3 className="text-lg font-bold text-gray-900 dark:text-white">Rapor Sihirbazı</h3>
+                            <button onClick={() => setShowReportModal(false)} className="text-gray-400 hover:text-red-500 text-2xl">×</button>
+                        </div>
+                        <div className="p-6 space-y-4">
+                            <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Rapora dahil etmek istediğiniz bölümleri seçin:</p>
+                            
+                            {[
+                                {k:'financials', l:'Finansal Özet', d:'Bütçe, harcanan ve kalan tutarlar', i:'💰'},
+                                {k:'weekly', l:'Haftalık Analiz', d:'Son 12 haftanın iş dökümü', i:'📅'},
+                                {k:'risks', l:'Risk Analizi', d:'Geciken ve yaklaşan kritik görevler', i:'⚠️'},
+                                {k:'phases', l:'Disiplin Detayları', d:'Her disiplin için görev sayıları', i:'🏗️'}
+                            ].map(opt => (
+                                <label key={opt.k} className="flex items-center p-3 border rounded-xl cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors group">
+                                    <input type="checkbox" checked={reportOptions[opt.k]} onChange={e => setReportOptions({...reportOptions, [opt.k]: e.target.checked})} className="w-5 h-5 text-blue-600 rounded focus:ring-blue-500" />
+                                    <div className="ml-4">
+                                        <span className="block font-bold text-gray-900 dark:text-white group-hover:text-blue-600 transition-colors">{opt.i} {opt.l}</span>
+                                        <span className="text-xs text-gray-500">{opt.d}</span>
+                                    </div>
+                                </label>
+                            ))}
+                        </div>
+                        <div className="p-6 border-t dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 rounded-b-2xl flex justify-end gap-3">
+                            <button onClick={() => setShowReportModal(false)} className="px-5 py-2.5 text-gray-600 hover:text-gray-800 font-medium">İptal</button>
+                            <button onClick={confirmDownloadReport} disabled={isGeneratingReport} className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold disabled:opacity-50 flex items-center gap-2 shadow-lg shadow-blue-500/30">
+                                {isGeneratingReport ? <LoadingSpinner size="small" color="white"/> : 'Raporu Oluştur ve İndir'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Faz Ekleme Modalı */}
             {showPhaseModal && (
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-                    <div className="bg-white dark:bg-gray-800 p-6 rounded-lg w-96">
-                        <h3 className="text-lg font-bold mb-4 dark:text-white">Yeni Disiplin Ekle</h3>
-                        <input autoFocus type="text" className="w-full border p-2 rounded mb-4 dark:bg-gray-700 dark:text-white dark:border-gray-600" value={newPhaseName} onChange={e => setNewPhaseName(e.target.value)} />
-                        <div className="flex justify-end space-x-2">
-                            <button onClick={() => setShowPhaseModal(false)} className="text-gray-500 px-3 py-1">İptal</button>
-                            <button onClick={handleAddPhase} className="bg-blue-600 text-white px-4 py-1 rounded">Ekle</button>
+                    <div className="bg-white dark:bg-gray-800 p-6 rounded-xl w-96 shadow-xl">
+                        <h3 className="font-bold mb-4 text-lg dark:text-white">Yeni Disiplin Oluştur</h3>
+                        <input autoFocus className="border w-full p-3 mb-6 rounded-lg dark:bg-gray-700 dark:text-white outline-none focus:ring-2 focus:ring-blue-500" placeholder="Örn: Mimari, Statik..." value={newPhaseName} onChange={e=>setNewPhaseName(e.target.value)} />
+                        <div className="flex justify-end gap-2">
+                            <button onClick={()=>setShowPhaseModal(false)} className="text-gray-500 px-4 py-2 hover:bg-gray-100 rounded-lg">İptal</button>
+                            <button onClick={handleAddPhase} className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 font-medium">Ekle</button>
                         </div>
                     </div>
                 </div>
             )}
 
-            {showDeleteModal && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-                    <div className="bg-white dark:bg-gray-800 p-6 rounded-lg">
-                        <p className="mb-4 dark:text-white">Silmek istediğinize emin misiniz?</p>
-                        <div className="flex justify-end space-x-2">
-                            <button onClick={() => setShowDeleteModal(false)} className="px-4 py-2 bg-gray-200 rounded">İptal</button>
-                            <button onClick={handleDeleteProject} className="px-4 py-2 bg-red-600 text-white rounded">Sil</button>
+            {/* Proje Tamamlama Modalı */}
+            {showCompleteModal && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white dark:bg-gray-800 p-6 rounded-xl max-w-sm w-full shadow-2xl">
+                        <div className="text-center mb-6">
+                            <div className="text-4xl mb-2">🎉</div>
+                            <h3 className="text-xl font-bold dark:text-white">Projeyi Tamamla?</h3>
+                            <p className="text-gray-500 mt-2 text-sm">Bu projeyi tamamlandı olarak işaretlemek üzeresiniz. Harika iş!</p>
+                        </div>
+                        <div className="flex gap-3">
+                            <button onClick={() => setShowCompleteModal(false)} className="flex-1 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-medium">Vazgeç</button>
+                            <button onClick={() => updateStatusAPI('completed')} className="flex-1 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-lg font-bold shadow-lg shadow-green-500/30">Evet, Tamamla</button>
                         </div>
                     </div>
                 </div>
             )}
-            {showCompleteModal && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-                    <div className="bg-white dark:bg-gray-800 p-6 rounded-lg">
-                        <p className="mb-4 dark:text-white">Projeyi tamamlamak istiyor musunuz?</p>
-                        <div className="flex justify-end space-x-2">
-                            <button onClick={() => setShowCompleteModal(false)} className="px-4 py-2 bg-gray-200 rounded">İptal</button>
-                            <button onClick={handleCompleteProject} className="px-4 py-2 bg-green-600 text-white rounded">Tamamla</button>
+
+            {/* Silme Modalı */}
+            {showDeleteModal && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white dark:bg-gray-800 p-6 rounded-xl max-w-sm w-full shadow-2xl border-2 border-red-100 dark:border-red-900">
+                        <h3 className="text-xl font-bold text-red-600 mb-2">Projeyi Sil?</h3>
+                        <p className="text-gray-600 dark:text-gray-300 mb-6">Bu işlem geri alınamaz. Emin misiniz?</p>
+                        <div className="flex justify-end gap-3">
+                            <button onClick={() => setShowDeleteModal(false)} className="px-4 py-2 bg-gray-100 rounded-lg font-medium">İptal</button>
+                            <button onClick={handleDeleteProject} className="px-4 py-2 bg-red-600 text-white rounded-lg font-bold hover:bg-red-700">Evet, Sil</button>
                         </div>
                     </div>
                 </div>

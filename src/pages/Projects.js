@@ -1,4 +1,4 @@
-// src/pages/Projects.js (FİNAL VERSİYON - FİRMA BİLGİSİ MODALI EKLENDİ)
+// src/pages/Projects.js
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../api/axios';
@@ -69,6 +69,10 @@ const Projects = () => {
   
   const [isProjectTypeOpen, setIsProjectTypeOpen] = useState(false);
   const [projectCode, setProjectCode] = useState('');
+
+  // ROL KONTROLLERİ
+  const isObserver = userData?.role === 'observer';
+  const canCreateProject = !isObserver && (userData?.role === 'admin' || userData?.role === 'manager');
 
   // Sayfa yüklendiğinde tüm verileri çek
   useEffect(() => {
@@ -190,8 +194,6 @@ const Projects = () => {
         addedCompany.company_id = companyId;
       }
       
-      // 'companies' state'ini 'Customers.js'in beklediği formatta (stats dahil) güncelle
-      // (Şimdilik yeni eklenende stats'lar 0 olacak)
       const newCompanyWithStats = {
         ...addedCompany,
         id: companyId,
@@ -217,7 +219,7 @@ const Projects = () => {
   // API: Yeni Proje Ekle
   const handleAddProject = async (e) => {
     e.preventDefault();
-    if (!userData || (userData.role !== 'admin' && userData.role !== 'manager')) {
+    if (!canCreateProject) {
       alert('Proje ekleme yetkiniz yok!');
       return;
     }
@@ -255,10 +257,8 @@ const Projects = () => {
       });
       setProjectCode('');
       setUserSearch('');
-      // Proje listesini anında güncelle
       setProjects(prev => [addedProject, ...prev]);
       
-      // Firma istatistiklerini de anında güncelle
       setCompanies(prev => prev.map(c => 
         c.id === addedProject.company_id
           ? { ...c, totalProjects: (c.totalProjects || 0) + 1, activeProjects: (c.activeProjects || 0) + 1 }
@@ -273,6 +273,7 @@ const Projects = () => {
   
   // API: Proje Ayarları (Üye Yönetimi)
   const handleOpenProjectSettings = async (project) => {
+    if (isObserver) return; // Güvenlik
     if (userData.role !== 'admin' && userData.role !== 'manager') {
       alert('Proje ayarlarını değiştirme yetkiniz yok!');
       return;
@@ -293,7 +294,7 @@ const Projects = () => {
   };
 
   const handleUpdateProjectMembers = async () => {
-    if (!selectedProject) return;
+    if (!selectedProject || isObserver) return;
     setLoadingSettings(true);
     try {
       await api.put(`/projects/${selectedProject.project_id}/members`, {
@@ -318,10 +319,7 @@ const Projects = () => {
     setShowCompanyInfoModal(true);
     
     try {
-      // 1. Temel bilgileri (stats dahil) 'companies' state'inden al
       const companyDetails = companies.find(c => c.id === company.id);
-      
-      // 2. Proje geçmişini API'den çek (Customers.js'teki mantığın aynısı)
       const projectsRes = await api.get(`/companies/${company.id}/projects`);
       
       setSelectedCompanyInfo({
@@ -431,7 +429,8 @@ const Projects = () => {
             Projeyi Aç
           </button>
           
-          {(userData.role === 'admin' || userData.role === 'manager') && (
+          {/* Gözlemci (Observer) ayarlar butonunu göremez */}
+          {!isObserver && (userData.role === 'admin' || userData.role === 'manager') && (
             <button
               onClick={() => handleOpenProjectSettings(project)}
               className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 text-sm font-medium transition-colors"
@@ -451,7 +450,14 @@ const Projects = () => {
       <div className="mb-8">
         <div className="flex justify-between items-center mb-6">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Projelerim</h1>
+            <div className="flex items-center gap-3">
+                <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Projelerim</h1>
+                {isObserver && (
+                    <span className="px-3 py-1 bg-purple-100 text-purple-800 text-xs font-bold rounded-full dark:bg-purple-900/30 dark:text-purple-300">
+                        👁️ Gözlemci Modu
+                    </span>
+                )}
+            </div>
             <p className="text-gray-600 dark:text-gray-400 mt-2">
               Tüm projelerinizi buradan yönetebilirsiniz.
             </p>
@@ -461,7 +467,8 @@ const Projects = () => {
               <div className="text-2xl font-bold text-gray-900 dark:text-white">{projects.length}</div>
               <div className="text-sm text-gray-500 dark:text-gray-400">Toplam Proje</div>
             </div>
-            {(userData?.role === 'admin' || userData?.role === 'manager') && (
+            {/* Gözlemci Proje Ekleyemez */}
+            {canCreateProject && (
               <button
                 onClick={() => setShowAddProjectModal(true)}
                 className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium transition-colors flex items-center space-x-2"

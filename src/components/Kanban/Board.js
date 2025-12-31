@@ -8,9 +8,11 @@ import api from '../../api/axios';
 const ItemTypes = { TASK: 'task', COLUMN: 'column' };
 
 // DraggableColumn
-const DraggableColumn = ({ column, index, moveColumn, projectId, onTaskUpdate, moveTask, userRole, currentUserId }) => {
+const DraggableColumn = ({ column, index, moveColumn, projectId, onTaskUpdate, moveTask, userRole, currentUserId, isObserver }) => {
   const ref = useRef(null);
-  const canDragColumn = userRole !== 'client';
+  
+  // Sütun taşıma yetkisi: Müşteri değilse VE Gözlemci değilse
+  const canDragColumn = userRole !== 'client' && !isObserver;
 
   const [, drop] = useDrop({
     accept: ItemTypes.COLUMN,
@@ -41,7 +43,7 @@ const DraggableColumn = ({ column, index, moveColumn, projectId, onTaskUpdate, m
   else dropTask(ref);
 
   return (
-    <div ref={ref} className={`flex-shrink-0 w-80 mr-4 transition-all duration-200 ${isDragging ? 'opacity-40' : 'opacity-100'} ${isOver && canDragColumn ? 'ring-2 ring-blue-400 rounded-lg' : ''}`}>
+    <div ref={ref} className={`flex-shrink-0 w-80 mr-4 transition-all duration-200 ${isDragging ? 'opacity-40' : 'opacity-100'} ${isOver && !isObserver ? 'ring-2 ring-blue-400 rounded-lg' : ''}`}>
       <div className="bg-gray-100 dark:bg-gray-800/50 rounded-lg p-3 h-full flex flex-col">
         {canDragColumn && (
             <div className="cursor-move flex justify-center pb-1 opacity-0 hover:opacity-100 transition-opacity">
@@ -54,20 +56,22 @@ const DraggableColumn = ({ column, index, moveColumn, projectId, onTaskUpdate, m
           onTaskUpdate={onTaskUpdate}
           userRole={userRole}
           currentUserId={currentUserId}
+          isObserver={isObserver} // Prop'u aşağı iletiyoruz
         />
       </div>
     </div>
   );
 };
 
-const Board = ({ projectId, phaseId, userRole, currentUserId, onTaskMoveSuccess }) => {
+const Board = ({ projectId, phaseId, userRole, currentUserId, onTaskMoveSuccess, isObserver }) => {
   const [columns, setColumns] = useState([]);
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isAddingColumn, setIsAddingColumn] = useState(false);
   const [newColumnTitle, setNewColumnTitle] = useState('');
 
-  const canEditBoard = userRole === 'admin' || userRole === 'manager';
+  // Board düzenleme yetkisi: Admin/Manager VE Gözlemci DEĞİL
+  const canEditBoard = (userRole === 'admin' || userRole === 'manager') && !isObserver;
 
   useEffect(() => {
     if (phaseId) fetchBoardData();
@@ -85,10 +89,9 @@ const Board = ({ projectId, phaseId, userRole, currentUserId, onTaskMoveSuccess 
     } catch (error) { console.error(error); } finally { setLoading(false); }
   };
 
-  // DÜZELTME: Görev güncellendiğinde (Bütçe vb.) hem tahtayı hem de üst istatistikleri yenile
   const handleTaskUpdate = async () => {
     await fetchBoardData(); 
-    if (onTaskMoveSuccess) onTaskMoveSuccess(); // BURASI EKLENDİ: ProjectDetail'i uyarır
+    if (onTaskMoveSuccess) onTaskMoveSuccess(); 
   };
 
   const moveColumn = (dragIndex, hoverIndex) => {
@@ -118,7 +121,8 @@ const Board = ({ projectId, phaseId, userRole, currentUserId, onTaskMoveSuccess 
   };
 
   const moveTask = async (taskId, targetColumnId) => {
-    if (userRole === 'client') return; 
+    // Gözlemci taşıyamaz
+    if (userRole === 'client' || isObserver) return; 
 
     const taskToMove = tasks.find(t => t.id === taskId);
     const canMove = userRole === 'admin' || userRole === 'manager' || (taskToMove && taskToMove.assignee_user_id === currentUserId);
@@ -127,7 +131,6 @@ const Board = ({ projectId, phaseId, userRole, currentUserId, onTaskMoveSuccess 
     setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: targetColumnId } : t));
     try {
       await api.put(`/tasks/${taskId}/status`, { status: targetColumnId });
-      // Sürükle bırak bitince istatistikleri güncelle
       if (onTaskMoveSuccess) onTaskMoveSuccess();
     } catch (error) { fetchBoardData(); }
   };
@@ -154,12 +157,14 @@ const Board = ({ projectId, phaseId, userRole, currentUserId, onTaskMoveSuccess 
             projectId={projectId}
             userRole={userRole}
             currentUserId={currentUserId}
-            onTaskUpdate={handleTaskUpdate} // GÜNCELLENDİ: Yeni fonksiyonu geçtik
+            onTaskUpdate={handleTaskUpdate}
             moveTask={moveTask}
             moveColumn={moveColumn}
+            isObserver={isObserver} // Gözlemci bilgisini iletiyoruz
           />
         ))}
         
+        {/* Sütun Ekleme Butonu: Sadece yetkili ve gözlemci olmayanlar görebilir */}
         {canEditBoard && (
           <div className="flex-shrink-0 w-80 bg-gray-100 dark:bg-gray-800/30 rounded-lg p-4 border-2 border-dashed border-gray-300 hover:border-blue-400 transition-colors">
             {isAddingColumn ? (

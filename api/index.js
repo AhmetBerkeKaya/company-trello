@@ -19,7 +19,8 @@ const meetingRequestRoutes = require('./routes/meetingRequestRoutes');
 const columnRoutes = require('./routes/columnRoutes');
 const phaseRoutes = require('./routes/phaseRoutes');
 const reportRoutes = require('./routes/reportRoutes');
-
+const initScheduledJobs = require('./utils/scheduler');
+initScheduledJobs();
 const app = express();
 const port = process.env.API_PORT || 5000;
 const apsController = require('./controllers/apsController');
@@ -74,5 +75,6 @@ const server = app.listen(port, () => {
     }
   });
 });
+
 
 server.setTimeout(600000); // 10 dakika (600,000 ms)

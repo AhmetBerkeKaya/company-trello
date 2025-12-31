@@ -543,56 +543,42 @@ exports.deleteProject = async (req, res) => {
 // PUT /api/projects/:projectId/members
 exports.updateProjectMembers = async (req, res) => {
   const { projectId } = req.params;
-  const { members, projectManager } = req.body;
-  const { userId: updaterId, role, companyId } = req.user;
-
-  const allMemberIds = [...new Set([...members, projectManager])]
-                          .filter(id => id != null);
+  // projectManager da geliyor artık
+  const { members, projectManager } = req.body; 
 
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
 
-    // Şirket kontrolü
-    const projectQuery = `
-        SELECT project_manager 
-        FROM projects 
-        WHERE project_id = $1 AND company_id = $2 
-        FOR UPDATE
-    `;
-    const projectRes = await client.query(projectQuery, [projectId, companyId]);
-    
-    if (projectRes.rows.length === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ message: 'Proje bulunamadı' });
-    }
-    
-    const project = projectRes.rows[0];
-    const canEdit = role === 'admin' || project.project_manager === updaterId;
-
-    if (!canEdit) {
-      await client.query('ROLLBACK');
-      return res.status(403).json({ message: 'Proje üyelerini düzenleme yetkiniz yok' });
+    // 1. Önce Proje Yöneticisini Güncelle (Eğer değiştiyse)
+    if (projectManager) {
+        await client.query(
+            'UPDATE projects SET project_manager = $1 WHERE project_id = $2',
+            [projectManager, projectId]
+        );
     }
 
+    // 2. Mevcut üyeleri temizle
     await client.query('DELETE FROM project_users WHERE project_id = $1', [projectId]);
 
-    if (allMemberIds.length > 0) {
-      const memberValues = allMemberIds.map(userId => `('${projectId}', '${userId}')`).join(',');
-      const participantQuery = `
-        INSERT INTO project_users (project_id, user_id)
-        VALUES ${memberValues}
-      `;
-      await client.query(participantQuery);
+    // 3. Yeni üyeleri ekle
+    if (members && members.length > 0) {
+      // SQL Injection koruması için parametreli sorgu kullanmak en doğrusudur ama 
+      // pg-format kütüphanesi yoksa döngü ile ekleyelim:
+      for (const userId of members) {
+          await client.query(
+              `INSERT INTO project_users (project_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+              [projectId, userId]
+          );
+      }
     }
 
     await client.query('COMMIT');
-    res.status(200).json(allMemberIds);
-    
+    res.json({ message: 'Proje ayarları güncellendi' });
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('Üye güncelleme hatası:', error);
-    res.status(500).json({ message: 'Sunucu hatası' });
+    console.error(error);
+    res.status(500).json({ message: 'Hata oluştu' });
   } finally {
     client.release();
   }

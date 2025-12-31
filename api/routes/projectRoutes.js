@@ -29,7 +29,7 @@ router.put('/:projectId/status', projectController.updateProjectStatus);
 router.put('/:projectId', authMiddleware, projectController.updateProject);
 
 // YENİ: PUT /api/projects/:projectId/members (Üyeleri güncelle)
-router.put('/:projectId/members', projectController.updateProjectMembers);
+router.put('/:projectId/members', authMiddleware, projectController.updateProjectMembers);
 
 // DELETE /api/projects/:projectId (Projeyi sil)
 router.delete('/:projectId', projectController.deleteProject);

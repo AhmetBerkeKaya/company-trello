@@ -1,41 +1,40 @@
 // src/pages/AdminUsers.js
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-// SİLİNDİ: Firebase importları
-import api from '../api/axios'; // YENİ
+import api from '../api/axios'; 
 import LoadingSpinner from '../components/UI/LoadingSpinner';
 
 const AdminUsers = () => {
   const { userData } = useAuth();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [updatingUser, setUpdatingUser] = useState(null); // Değişen kullanıcı ID'si
+  const [updatingUser, setUpdatingUser] = useState(null); 
+
+  // ROL KONTROLÜ
+  const isObserver = userData?.role === 'observer';
+  // Admin veya Gözlemci görebilir
+  const canView = userData?.role === 'admin' || isObserver;
 
   useEffect(() => {
-    if (userData && userData.role === 'admin') {
+    if (canView) {
       fetchUsers();
+    } else {
+      setLoading(false);
     }
-  }, [userData]);
+  }, [canView]);
 
-  // YENİ: fetchUsers (API'ye bağlandı)
   const fetchUsers = async () => {
     try {
       setLoading(true);
-
-      // (Bebek Adımı 4.B'de yazdığımız, şimdi güncellediğimiz yol)
       const response = await api.get('/users');
       
       const usersData = response.data.map(user => ({
         ...user,
-        // PostgreSQL tarih formatını JavaScript Date objesine çevir
         createdAt: user.created_at ? new Date(user.created_at) : null,
         lastLoginAt: user.last_login_at ? new Date(user.last_login_at) : null
       }));
 
-      // İstemci tarafında sırala (API zaten yapıyor ama garanti olsun)
       usersData.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-
-      console.log('📊 Kullanıcılar getirildi:', usersData.length, 'kullanıcı');
       setUsers(usersData);
     } catch (error) {
       console.error('❌ Kullanıcıları getirme hatası:', error);
@@ -44,9 +43,9 @@ const AdminUsers = () => {
     }
   };
 
-  // YENİ: updateUserRole (API'ye bağlandı)
   const updateUserRole = async (userId, newRole) => {
-    if (userId === userData.user_id) { // 'id' -> 'user_id'
+    if (isObserver) return; // Gözlemci yetkisi yok
+    if (userId === userData.user_id) { 
       alert('Kendi rolünüzü değiştiremezsiniz!');
       return;
     }
@@ -54,80 +53,67 @@ const AdminUsers = () => {
     setUpdatingUser(userId);
 
     try {
-      // YENİ API yolu
       await api.put(`/users/${userId}/role`, { newRole });
-
-      // Local state'i güncelle
       setUsers(prev => prev.map(user =>
         user.user_id === userId ? { ...user, role: newRole } : user
       ));
-
     } catch (error) {
-      console.error('Rol güncelleme hatası:', error);
       alert('Rol güncellenirken hata oluştu: ' + (error.response?.data?.message || error.message));
     } finally {
       setUpdatingUser(null);
     }
   };
 
-  // YENİ: updateUserDepartment (API'ye bağlandı)
   const updateUserDepartment = async (userId, newDepartment) => {
-    // Sadece 'blur' (input'tan çıkınca) tetiklenmesi için state'i anlık güncelle
+    if (isObserver) return; // Gözlemci yetkisi yok
+    
     setUsers(prev => prev.map(user =>
       user.user_id === userId ? { ...user, department: newDepartment } : user
     ));
     
-    // API isteğini 'debounce' (gecikme) olmadan direkt gönder
     try {
-      setUpdatingUser(userId); // Spinner'ı başlat
+      setUpdatingUser(userId); 
       await api.put(`/users/${userId}/department`, { newDepartment });
-      
-      // API'den başarılı dönerse state'i tekrar set etmeye gerek yok,
-      // zaten anlık olarak set etmiştik.
-      
     } catch (error) {
-      console.error('Departman güncelleme hatası:', error);
-      // Hata olursa eski state'e geri dön (veya 'fetchUsers' yap)
-      fetchUsers(); // En temizi
+      fetchUsers(); 
     } finally {
-      setUpdatingUser(null); // Spinner'ı durdur
+      setUpdatingUser(null); 
     }
   };
   
-  // YENİ: Departman input'unu 'blur' (odaktan çıkma) ile kaydet
-  // 'onChange' ile her tuşa basıldığında API isteği atmamak için
   const handleDepartmentChange = (userId, value) => {
+     if (isObserver) return; // Input değişikliğini engelle
      setUsers(prev => prev.map(user =>
         user.user_id === userId ? { ...user, department: value } : user
       ));
   };
   const handleDepartmentBlur = (userId, value) => {
+     if (isObserver) return;
      updateUserDepartment(userId, value);
   };
 
-
-  // Rol renkleri
   const getRoleColor = (role) => {
     switch (role) {
       case 'admin': return 'bg-purple-100 text-purple-800 border-purple-200 dark:bg-purple-900/20 dark:text-purple-300 dark:border-purple-800';
       case 'manager': return 'bg-green-100 text-green-800 border-green-200 dark:bg-green-900/20 dark:text-green-300 dark:border-green-800';
       case 'user': return 'bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/20 dark:text-blue-300 dark:border-blue-800';
+      case 'observer': return 'bg-orange-100 text-orange-800 border-orange-200 dark:bg-orange-900/20 dark:text-orange-300 dark:border-orange-800'; // Observer rengi
       default: return 'bg-gray-100 text-gray-800 border-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600';
     }
   };
 
-  // Rol etiketi
   const getRoleLabel = (role) => {
     switch (role) {
       case 'admin': return 'Yönetici';
       case 'manager': return 'Proje Yöneticisi';
       case 'user': return 'Kullanıcı';
+      case 'observer': return 'Gözlemci';
       default: return 'Kullanıcı';
     }
   };
 
-  // Yetki kontrolü
-  if (userData?.role !== 'admin') {
+  // Yetki kontrolü (Admin veya Observer görebilir)
+  if (!canView) {
     return (
       <div className="max-w-7xl mx-auto py-6 px-4">
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow dark:shadow-gray-900/50 p-8 text-center">
@@ -139,7 +125,6 @@ const AdminUsers = () => {
     );
   }
 
-  // Yükleniyor
   if (loading) {
     return (
       <div className="max-w-7xl mx-auto py-6 px-4">
@@ -150,14 +135,20 @@ const AdminUsers = () => {
     );
   }
 
-  // --- RENDER (DÜZELTME: Veritabanı sütun adları) ---
   return (
     <div className="max-w-7xl mx-auto py-6 px-4">
       {/* Header */}
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Kullanıcı Yönetimi</h1>
+        <div className="flex items-center gap-3">
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Kullanıcı Yönetimi</h1>
+            {isObserver && (
+               <span className="px-3 py-1 bg-purple-100 text-purple-800 text-xs font-bold rounded-full dark:bg-purple-900/30 dark:text-purple-300">
+                   👁️ Gözlemci Modu
+               </span>
+            )}
+        </div>
         <p className="text-gray-600 dark:text-gray-400 mt-2">
-          PROAEC çalışanlarını yönetin ve rollerini düzenleyin
+          Sistem kullanıcılarını ve rollerini görüntüleyin.
         </p>
       </div>
 
@@ -218,7 +209,6 @@ const AdminUsers = () => {
                       {user.department && (
                         <span>🏢 {user.department}</span>
                       )}
-                      {/* DÜZELTME: PostgreSQL tarih formatı */}
                       <span>📅 {user.createdAt ? user.createdAt.toLocaleDateString('tr-TR') : 'Bilinmiyor'}</span>
                       {user.lastLoginAt && (
                         <span>🔐 {user.lastLoginAt.toLocaleDateString('tr-TR')}</span>
@@ -227,9 +217,8 @@ const AdminUsers = () => {
                   </div>
                 </div>
 
-                {/* Kontroller */}
+                {/* Kontroller (Gözlemciye Disabled) */}
                 <div className="flex items-center space-x-4">
-                  {/* Departman (DÜZELTME: 'onChange' ve 'onBlur' eklendi) */}
                   <div className="w-32">
                     <input
                       type="text"
@@ -237,29 +226,27 @@ const AdminUsers = () => {
                       onChange={(e) => handleDepartmentChange(user.user_id, e.target.value)}
                       onBlur={(e) => handleDepartmentBlur(user.user_id, e.target.value)}
                       placeholder="Departman"
-                      className="w-full px-3 py-1 border border-gray-300 dark:border-gray-600 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                      disabled={updatingUser === user.user_id}
+                      className="w-full px-3 py-1 border border-gray-300 dark:border-gray-600 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white disabled:bg-gray-100 disabled:dark:bg-gray-800 disabled:opacity-70"
+                      disabled={updatingUser === user.user_id || isObserver} // Gözlemci değiştiremez
                     />
                   </div>
 
-                  {/* Rol Seçimi (DÜZELTME: 'id' -> 'user_id') */}
                   <select
                     value={user.role || 'user'}
                     onChange={(e) => updateUserRole(user.user_id, e.target.value)}
-                    disabled={updatingUser === user.user_id || user.user_id === userData.user_id}
-                    className="px-3 py-1 border border-gray-300 dark:border-gray-600 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                    disabled={updatingUser === user.user_id || user.user_id === userData.user_id || isObserver} // Gözlemci değiştiremez
+                    className="px-3 py-1 border border-gray-300 dark:border-gray-600 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-70 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                   >
                     <option value="user">Kullanıcı</option>
                     <option value="manager">Proje Yöneticisi</option>
                     <option value="admin">Yönetici</option>
+                    <option value="observer">Gözlemci</option> {/* Seçeneği ekledim */}
                   </select>
 
-                  {/* Rol Badge */}
                   <span className={`px-3 py-1 text-xs font-medium rounded-full border ${getRoleColor(user.role)}`}>
                     {getRoleLabel(user.role)}
                   </span>
 
-                  {/* Yükleme Göstergesi */}
                   {updatingUser === user.user_id && (
                     <LoadingSpinner size="small" />
                   )}
@@ -276,22 +263,6 @@ const AdminUsers = () => {
             <p className="text-gray-600 dark:text-gray-400">Sisteme giriş yapan kullanıcılar burada listelenecek.</p>
           </div>
         )}
-      </div>
-
-      {/* Bilgi Notu */}
-      <div className="mt-6 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-        <div className="flex items-start">
-          <div className="text-blue-600 dark:text-blue-400 mr-3">💡</div>
-          <div>
-            <h4 className="text-sm font-medium text-blue-800 dark:text-blue-300">Kullanıcı Yönetimi İpuçları</h4>
-            <ul className="text-sm text-blue-700 dark:text-blue-400 mt-1 space-y-1">
-              <li>• <strong>Yönetici:</strong> Tüm sistemi yönetebilir, kullanıcı rollerini değiştirebilir</li>
-              <li>• <strong>Proje Yöneticisi:</strong> Proje oluşturabilir, takım yönetebilir</li>
-              <li>• <strong>Kullanıcı:</strong> Sadece kendine atanan görevleri yönetebilir</li>
-              <li>• Kendi rolünüzü değiştiremezsiniz</li>
-            </ul>
-          </div>
-        </div>
       </div>
     </div>
   );

@@ -1,3 +1,4 @@
+// src/pages/Customers.js
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../api/axios';
@@ -6,7 +7,6 @@ import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 
 // --- SABİT ŞEMA TANIMI ---
-// Bu şema hem validasyon için hem de kullanıcıya bilgi vermek için kullanılır
 const DB_SCHEMA = [
   { key: 'name', label: 'Firma Adı', required: true, type: 'Metin', description: 'Şirketin ticari ünvanı (Örn: ABC A.Ş.)' },
   { key: 'tax_no', label: 'Vergi No', required: false, type: 'Sayı (10 Hane)', description: 'Vergi kimlik numarası' },
@@ -49,7 +49,10 @@ const Customers = () => {
   });
   const [isAdding, setIsAdding] = useState(false);
 
-  const canView = userData?.role === 'admin' || userData?.role === 'manager';
+  // ROL KONTROLÜ
+  const isObserver = userData?.role === 'observer';
+  // Gözlemci de görebilir
+  const canView = userData?.role === 'admin' || userData?.role === 'manager' || isObserver;
 
   useEffect(() => {
     if (canView) fetchCompanies();
@@ -162,7 +165,7 @@ const Customers = () => {
         if (typeof value === 'string') value = value.trim();
 
         if (field.required && (!value || value === '')) { rowHasError = true; rowErrors.push(`${field.label} boş`); }
-        if (value && field.type === 'Sayı (10 Hane)' && isNaN(Number(value))) { rowHasError = true; rowErrors.push(`${field.label} sayı olmalı`); } // Basit sayı kontrolü
+        if (value && field.type === 'Sayı (10 Hane)' && isNaN(Number(value))) { rowHasError = true; rowErrors.push(`${field.label} sayı olmalı`); } 
         if (value && field.type === 'E-Posta' && !value.toString().includes('@')) { rowHasError = true; rowErrors.push(`Geçersiz Email`); }
 
         mappedRow[field.key] = value;
@@ -209,20 +212,33 @@ const Customers = () => {
       {/* HEADER */}
       <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
         <div>
-           <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Müşteri Kartları</h1>
+           <div className="flex items-center gap-3">
+               <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Müşteri Kartları</h1>
+               {isObserver && (
+                   <span className="px-3 py-1 bg-purple-100 text-purple-800 text-xs font-bold rounded-full dark:bg-purple-900/30 dark:text-purple-300">
+                       👁️ Gözlemci Modu
+                   </span>
+               )}
+           </div>
            <p className="text-gray-500">Müşterilerinizi yönetin.</p>
         </div>
         <div className="flex gap-2 w-full md:w-auto">
             <input type="text" placeholder="Firma ara..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
               className="border p-2 rounded flex-1 md:w-64 dark:bg-gray-700 dark:text-white dark:border-gray-600"
             />
-            <button onClick={() => setShowAddModal(true)} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded flex items-center gap-2 whitespace-nowrap">
-                <span>➕</span> Yeni Ekle
-            </button>
-            <button onClick={() => { setShowImportModal(true); resetImport(); }} className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded flex items-center gap-2 whitespace-nowrap">
-                <span>📄</span> Excel'den Yükle
-            </button>
-            <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" accept=".xlsx,.csv" />
+            
+            {/* Gözlemci Değilse Butonları Göster */}
+            {!isObserver && (
+                <>
+                    <button onClick={() => setShowAddModal(true)} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded flex items-center gap-2 whitespace-nowrap">
+                        <span>➕</span> Yeni Ekle
+                    </button>
+                    <button onClick={() => { setShowImportModal(true); resetImport(); }} className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded flex items-center gap-2 whitespace-nowrap">
+                        <span>📄</span> Excel'den Yükle
+                    </button>
+                    <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" accept=".xlsx,.csv" />
+                </>
+            )}
         </div>
       </div>
 
@@ -279,8 +295,8 @@ const Customers = () => {
           )}
       </div>
 
-      {/* --- MANUEL EKLEME MODAL --- */}
-      {showAddModal && (
+      {/* --- MANUEL EKLEME MODAL (Sadece !isObserver için açılır ama kod kalabilir) --- */}
+      {showAddModal && !isObserver && (
           <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
               <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-2xl animate-in fade-in zoom-in duration-200">
                   <div className="p-6 border-b dark:border-gray-700 flex justify-between items-center">
@@ -311,8 +327,9 @@ const Customers = () => {
           </div>
       )}
 
-      {/* --- IMPORT MODAL (STEP 1: BİLGİLENDİRME VE YÜKLEME) --- */}
-      {showImportModal && (
+      {/* --- IMPORT MODAL --- */}
+      {showImportModal && !isObserver && (
+          // ... Import modal içeriği (Aynı kalıyor, sadece !isObserver kontrolü eklendi)
           <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
               <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-4xl h-[90vh] flex flex-col">
                   {/* Header */}
@@ -330,11 +347,11 @@ const Customers = () => {
                       <button onClick={() => setShowImportModal(false)} className="text-gray-400 hover:text-red-500 text-2xl">×</button>
                   </div>
 
-                  {/* Body */}
+                  {/* Body (Kısaltıldı, eski kodun aynısı) */}
                   <div className="flex-1 p-6 overflow-y-auto">
                       {step === 1 && (
                           <div className="space-y-6">
-                              {/* 1. BÖLÜM: BİLGİLENDİRME TABLOSU (İSTEĞİN ÜZERİNE EKLENDİ) */}
+                              {/* ... Bilgilendirme ve Yükleme Alanı ... */}
                               <div className="bg-blue-50 dark:bg-blue-900/20 p-5 rounded-xl border border-blue-100 dark:border-blue-800">
                                   <div className="flex items-center gap-2 mb-3">
                                       <span className="text-2xl">ℹ️</span>
@@ -373,7 +390,6 @@ const Customers = () => {
                                   </div>
                               </div>
 
-                              {/* 2. BÖLÜM: YÜKLEME ALANI */}
                               <div className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-8 bg-gray-50 dark:bg-gray-800/50 hover:bg-blue-50 transition-colors cursor-pointer text-center" onClick={() => fileInputRef.current.click()}>
                                   <div className="text-5xl mb-3">📊</div>
                                   <h3 className="text-lg font-semibold mb-1 dark:text-white">Excel dosyanızı buraya sürükleyin veya tıklayın</h3>
@@ -388,7 +404,6 @@ const Customers = () => {
                           </div>
                       )}
 
-                      {/* STEP 2: EŞLEŞTİRME */}
                       {step === 2 && (
                           <div>
                               <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 p-3 rounded mb-4 text-sm">
@@ -414,7 +429,6 @@ const Customers = () => {
                           </div>
                       )}
 
-                      {/* STEP 3: ONAY */}
                       {step === 3 && (
                           <div>
                               <div className="flex gap-4 mb-4">
