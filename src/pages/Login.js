@@ -52,10 +52,10 @@ const Login = () => {
       <div className="max-w-md w-full bg-white rounded-2xl shadow-xl overflow-hidden">
         <div className="bg-blue-600 py-6 px-8">
           <h2 className="text-center text-3xl font-extrabold text-white">
-            ProAEC Works
+            Şirket Adı
           </h2>
           <p className="mt-2 text-center text-blue-100 text-sm">
-            PROAEC Şirket İçi Proje Yönetim Sistemi
+            Proje Yönetim Sistemi
           </p>
         </div>
         
@@ -85,7 +85,7 @@ const Login = () => {
                 autoComplete="email"
                 required
                 className="appearance-none relative block w-full px-3 py-3 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                placeholder="ornek@proaec.com"
+                placeholder="E-posta adresiniz"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
               />

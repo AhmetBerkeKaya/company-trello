@@ -17,7 +17,6 @@ const sanitizeText = (text) => {
 
 exports.generateProjectReport = async (req, res) => {
   const { projectId } = req.params;
-  // Frontend'den gelen seçenekleri al (Varsayılan olarak hepsi 'true' gelir string olarak)
   const { 
     includeFinancials = 'true', 
     includeRisks = 'true', 
@@ -46,16 +45,26 @@ exports.generateProjectReport = async (req, res) => {
     const project = projectRes.rows[0];
 
     // Yetki Kontrolü
-    if (project.company_id !== companyId && req.user.role !== 'admin' && req.user.role !== 'observer') {
-       return res.status(403).json({ message: 'Yetkisiz' });
+    const isMemberQuery = `SELECT 1 FROM project_users WHERE project_id = $1 AND user_id = $2`;
+    const memberCheck = await pool.query(isMemberQuery, [projectId, userId]);
+    
+    if (project.company_id !== companyId && req.user.role !== 'admin' && !memberCheck.rows.length) {
+       return res.status(403).json({ message: 'Yetkisiz erişim' });
     }
 
-    // 2. İSTATİSTİKLER (FAZ BAZLI)
+    // 2. İSTATİSTİKLER (FAZ BAZLI) - DÜZELTİLDİ
+    // Görevin statüsü 'completed' stringi değil, sütun ID'sidir. 
+    // Bu yüzden Sütun başlığına (pc.title) bakarak sayım yapıyoruz.
     const statsQuery = `
-      SELECT pp.name AS phase_name, COUNT(t.task_id) AS total_tasks,
+      SELECT 
+        pp.name AS phase_name, 
+        COUNT(t.task_id) AS total_tasks,
         COALESCE(SUM(t.estimated_cost), 0) AS total_estimated,
         COALESCE(SUM(t.actual_cost), 0) AS total_actual,
-        COUNT(CASE WHEN t.status = 'completed' THEN 1 END) AS completed_tasks
+        COUNT(CASE 
+            WHEN LOWER(pc.title) IN ('tamamlandı', 'done', 'biten', 'completed') THEN 1 
+            ELSE NULL 
+        END) AS completed_tasks
       FROM project_phases pp
       LEFT JOIN project_columns pc ON pp.phase_id = pc.phase_id
       LEFT JOIN tasks t ON t.status = pc.column_id::text
@@ -64,39 +73,45 @@ exports.generateProjectReport = async (req, res) => {
     `;
     const statsRes = await pool.query(statsQuery, [projectId]);
 
-    // 3. HAFTALIK İLERLEME RAPORU (YENİ SQL SORGUSU)
-    // Görevlerin güncellenme tarihine (tamamlananlar için) veya oluşturulma tarihine göre haftalık gruplama
+    // 3. HAFTALIK İLERLEME RAPORU - DÜZELTİLDİ
+    // Burada da 'completed' kontrolünü sütun adı üzerinden yapıyoruz.
     let weeklyRes = { rows: [] };
     if (showWeekly) {
         const weeklyQuery = `
             SELECT 
-                DATE_TRUNC('week', updated_at)::date as week_start,
+                DATE_TRUNC('week', t.updated_at)::date as week_start,
                 COUNT(*) as tasks_completed,
-                SUM(actual_cost) as cost_incurred
-            FROM tasks
-            WHERE project_id = $1 AND status = 'completed'
+                SUM(t.actual_cost) as cost_incurred
+            FROM tasks t
+            JOIN project_columns pc ON t.status = pc.column_id::text
+            WHERE t.project_id = $1 
+            AND LOWER(pc.title) IN ('tamamlandı', 'done', 'biten', 'completed')
             GROUP BY 1
             ORDER BY 1 DESC
-            LIMIT 12 -- Son 12 hafta
+            LIMIT 12
         `;
         weeklyRes = await pool.query(weeklyQuery, [projectId]);
     }
 
-    // 4. RİSKLİ GÖREVLER
+    // 4. RİSKLİ GÖREVLER - DÜZELTİLDİ
+    // Tamamlanmamış görevleri bulmak için "Tamamlandı" sütununda OLMAYANLARI çekiyoruz.
     let risksRes = { rows: [] };
     if (showRisks) {
         const risksQuery = `
-            SELECT t.title, t.due_date, u.name as assignee_name, t.status 
+            SELECT t.title, t.due_date, u.name as assignee_name, pc.title as status 
             FROM tasks t
             LEFT JOIN users u ON t.assignee_user_id = u.user_id
-            WHERE t.project_id = $1 AND t.status != 'completed' 
-            AND t.due_date IS NOT NULL AND t.due_date <= (CURRENT_DATE + INTERVAL '7 days')
+            LEFT JOIN project_columns pc ON t.status = pc.column_id::text
+            WHERE t.project_id = $1 
+            AND (LOWER(pc.title) NOT IN ('tamamlandı', 'done', 'biten', 'completed') OR pc.title IS NULL)
+            AND t.due_date IS NOT NULL 
+            AND t.due_date <= (CURRENT_DATE + INTERVAL '7 days')
             ORDER BY t.due_date ASC LIMIT 10
         `;
         risksRes = await pool.query(risksQuery, [projectId]);
     }
 
-    // --- PDF OLUŞTURMA ---
+    // --- PDF OLUŞTURMA (Tasarım Aynı) ---
     const doc = new PDFDocument({ margin: 50, size: 'A4' });
     res.setHeader('Content-Type', 'application/pdf');
     const safeName = sanitizeText(project.name).replace(/[^a-zA-Z0-9]/g, '_');
@@ -106,32 +121,26 @@ exports.generateProjectReport = async (req, res) => {
     const brandColor = project.brand_color || '#2563EB';
     const lightGray = '#f1f5f9';
 
-    // Yardımcı Fonksiyon: Bölüm Başlığı
+    // Yardımcılar...
     const drawHeader = (text, y) => {
         doc.rect(50, y, 5, 20).fill(brandColor);
         doc.fontSize(12).fillColor('black').font('Helvetica-Bold').text(text.toUpperCase(), 65, y + 5);
         return y + 35;
     };
-
-    // Yardımcı Fonksiyon: Tablo Satırı
     const drawRow = (y, cols, isHeader = false) => {
         if (isHeader) doc.rect(50, y, 495, 20).fill(lightGray);
-        else doc.rect(50, y + 19, 495, 1).fill('#e2e8f0'); // Alt çizgi
-
+        else doc.rect(50, y + 19, 495, 1).fill('#e2e8f0');
         doc.fillColor(isHeader ? 'black' : '#334155').font(isHeader ? 'Helvetica-Bold' : 'Helvetica').fontSize(9);
-        
         let x = 60;
         cols.forEach((col, i) => {
-            const width = [200, 100, 100, 80][i] || 100; // Basit genişlik ayarı
-            doc.text(sanitizeText(col), x, y + 6, { width: width, align: i > 0 ? 'left' : 'left' });
+            const width = [200, 100, 100, 80][i] || 100;
+            doc.text(sanitizeText(col), x, y + 6, { width: width, align: 'left' });
             x += width;
         });
         return y + 20;
     };
 
-    // --- SAYFA 1: KAPAK VE ÖZET ---
-    
-    // Logo & Başlık
+    // KAPAK
     let cursorY = 50;
     if (project.logo_url) {
         try {
@@ -146,7 +155,6 @@ exports.generateProjectReport = async (req, res) => {
     doc.moveTo(50, cursorY).lineTo(545, cursorY).strokeColor('gray').lineWidth(0.5).stroke();
     cursorY += 20;
 
-    // Yönetici Özeti
     cursorY = drawHeader('EXECUTIVE SUMMARY', cursorY);
     doc.font('Helvetica').fontSize(10).fillColor('black');
     doc.text(`Manager: ${sanitizeText(project.manager_name)}`, 60, cursorY);
@@ -156,13 +164,11 @@ exports.generateProjectReport = async (req, res) => {
     doc.text(`Generated: ${new Date().toLocaleDateString('en-GB')}`, 300, cursorY);
     cursorY += 40;
 
-    // --- MODÜL 1: FİNANSAL DURUM (İsteğe Bağlı) ---
     if (showFinancials) {
         cursorY = drawHeader('FINANCIAL OVERVIEW', cursorY);
         let tBudget = 0, tSpent = 0;
         statsRes.rows.forEach(r => { tBudget += parseFloat(r.total_estimated); tSpent += parseFloat(r.total_actual); });
         
-        // Kutucuklar
         const drawBox = (x, title, val, color) => {
             doc.rect(x, cursorY, 110, 50).fill(lightGray).stroke();
             doc.fillColor('gray').fontSize(8).text(title, x+10, cursorY+10);
@@ -179,37 +185,28 @@ exports.generateProjectReport = async (req, res) => {
         
         doc.rect(420, cursorY + 15, 100, 10).fill('white').stroke();
         doc.rect(420, cursorY + 15, progress, 10).fill(brandColor);
-        doc.fillColor('black').fontSize(10).text(`%${progress} Complete`, 420, cursorY+30, {width: 100, align:'center'});
+        doc.fillColor('black').fontSize(10).text(`%${progress} Complete`, 420, cursorY+30, {width: 100, align:'center'}); // Yüzdeyi buraya yazar
 
         cursorY += 80;
     }
 
-    // --- MODÜL 2: HAFTALIK İLERLEME (YENİ & DETAYLI) ---
     if (showWeekly && weeklyRes.rows.length > 0) {
         if (cursorY > 600) { doc.addPage(); cursorY = 50; }
-        cursorY = drawHeader('WEEKLY BREAKDOWN (LAST 12 WEEKS)', cursorY);
-        
+        cursorY = drawHeader('WEEKLY BREAKDOWN', cursorY);
         cursorY = drawRow(cursorY, ['WEEK OF', 'COMPLETED TASKS', 'COST INCURRED', 'STATUS'], true);
-        
         weeklyRes.rows.forEach(week => {
             const dateStr = new Date(week.week_start).toLocaleDateString('en-GB');
-            const costStr = parseFloat(week.weekly_cost || 0).toLocaleString() + ' TL';
-            const performance = parseInt(week.tasks_completed) > 2 ? 'High' : 'Normal'; // Basit mantık
-            
+            const costStr = parseFloat(week.cost_incurred || 0).toLocaleString() + ' TL';
+            const performance = parseInt(week.tasks_completed) > 2 ? 'High' : 'Normal'; 
             cursorY = drawRow(cursorY, [dateStr, `${week.tasks_completed} Tasks`, costStr, performance]);
         });
         cursorY += 30;
-    } else if (showWeekly) {
-        doc.fontSize(9).text('No weekly data available yet.', 60, cursorY + 5);
-        cursorY += 30;
     }
 
-    // --- MODÜL 3: DİSİPLİN (FAZ) DETAYLARI ---
     if (showPhases) {
         if (cursorY > 600) { doc.addPage(); cursorY = 50; }
-        cursorY = drawHeader('DISCIPLINE / PHASE DETAILS', cursorY);
+        cursorY = drawHeader('PHASE DETAILS', cursorY);
         cursorY = drawRow(cursorY, ['PHASE NAME', 'TASKS (Done/Total)', 'BUDGET', 'SPENT'], true);
-        
         statsRes.rows.forEach(row => {
             const ratio = `${row.completed_tasks} / ${row.total_tasks}`;
             cursorY = drawRow(cursorY, [
@@ -221,19 +218,17 @@ exports.generateProjectReport = async (req, res) => {
         cursorY += 30;
     }
 
-    // --- MODÜL 4: RİSKLER ---
     if (showRisks && risksRes.rows.length > 0) {
         if (cursorY > 600) { doc.addPage(); cursorY = 50; }
-        cursorY = drawHeader('CRITICAL RISKS & DELAYS', cursorY);
+        cursorY = drawHeader('CRITICAL RISKS', cursorY);
         cursorY = drawRow(cursorY, ['TASK', 'ASSIGNEE', 'DUE DATE', 'STATUS'], true);
-        
         risksRes.rows.forEach(task => {
             const d = new Date(task.due_date).toLocaleDateString('en-GB');
-            cursorY = drawRow(cursorY, [task.title, task.assignee_name||'-', d, task.status.toUpperCase()]);
+            const statusText = task.status ? task.status.toUpperCase() : 'TODO'; // Status ID yerine Title gelir
+            cursorY = drawRow(cursorY, [task.title, task.assignee_name||'-', d, statusText]);
         });
     }
 
-    // FOOTER
     const range = doc.bufferedPageRange();
     for (let i = 0; i < range.count; i++) {
         doc.switchToPage(i);

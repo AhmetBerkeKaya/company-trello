@@ -5,8 +5,10 @@ const meetingController = require('../controllers/meetingController');
 const authMiddleware = require('../middleware/authMiddleware');
 
 router.use(authMiddleware);
-router.get('/', meetingController.getMyAllMeetings);
+
+// ÖNEMLİ: Özel rotalar (upcoming gibi) her zaman parametreli rotalardan (:id) ÖNCE gelmelidir.
 router.get('/upcoming', meetingController.getMyUpcomingMeetings);
+router.get('/', meetingController.getMyAllMeetings);
 
 // YENİ: POST /api/meetings (Yeni toplantı oluştur)
 router.post('/', meetingController.createMeeting);

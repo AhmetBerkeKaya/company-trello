@@ -58,18 +58,43 @@ exports.createProject = async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    const codeQuery = `
-      SELECT project_id 
+    // --- DÜZELTME BAŞLANGICI ---
+    
+    // 1. Yıl ve Prefix'i belirle
+    const year = new Date().getFullYear();
+    const prefix = `${selectedType.prefix}-${year}`; // Örn: BIM-2026
+
+    // 2. Bu tipte ve yılda oluşturulmuş EN SON proje kodunu bul (Şirket farketmeksizin!)
+    // LIKE sorgusu ile 'BIM-2026-%' ile başlayan en son kodu çekiyoruz.
+    const lastCodeQuery = `
+      SELECT project_code 
       FROM projects 
-      WHERE project_type = $1 AND company_id = $2
+      WHERE project_code LIKE $1 
+      ORDER BY project_code DESC 
+      LIMIT 1
       FOR UPDATE
     `;
-    const codeRes = await client.query(codeQuery, [projectType, companyId]);
     
-    const projectCount = codeRes.rows.length + 1; 
-    const year = new Date().getFullYear();
-    const sequence = projectCount.toString().padStart(3, '0');
-    const projectCode = `${selectedType.prefix}-${year}-${sequence}`;
+    const lastCodeRes = await client.query(lastCodeQuery, [`${prefix}-%`]);
+    
+    let nextSequence = 1;
+
+    if (lastCodeRes.rows.length > 0) {
+        // En son kod varsa (Örn: BIM-2026-005), sondaki rakamı al ve 1 artır.
+        const lastCode = lastCodeRes.rows[0].project_code;
+        const lastSeqStr = lastCode.split('-').pop(); // "005"
+        const lastSeqNum = parseInt(lastSeqStr, 10); // 5
+        
+        if (!isNaN(lastSeqNum)) {
+            nextSequence = lastSeqNum + 1;
+        }
+    }
+
+    // 3. Yeni Kodu Oluştur (Örn: BIM-2026-006)
+    const sequenceStr = nextSequence.toString().padStart(3, '0');
+    const projectCode = `${prefix}-${sequenceStr}`;
+
+    // --- DÜZELTME BİTİŞİ ---
 
     const projectInsertQuery = `
       INSERT INTO projects (
@@ -82,7 +107,7 @@ exports.createProject = async (req, res) => {
     const projectRes = await client.query(projectInsertQuery, [
       title,
       description,
-      company, // Gelen company ID'yi kullanıyoruz (SaaS/Admin panelinden seçilen)
+      company, 
       projectType, 
       projectCode, 
       projectManager, 
@@ -95,11 +120,7 @@ exports.createProject = async (req, res) => {
     const newProject = projectRes.rows[0];
     const newProjectId = newProject.project_id;
 
-    // Fazları oluştur (PhaseController.js yapısına uygun olarak varsayılan faz eklenebilir ama 
-    // senin kodunda createProject içinde manuel column ekleme var. 
-    // Faz sistemine tam geçiş yaptıysak buraya 'Genel Yönetim' fazı eklenmeli.)
-    
-    // YENİ: Varsayılan 'Genel Yönetim' Fazı
+    // Varsayılan 'Genel Yönetim' Fazı
     const phaseQuery = `INSERT INTO project_phases (project_id, name, type, order_index) VALUES ($1, 'Genel Yönetim', 'general', 0) RETURNING phase_id`;
     const phaseRes = await client.query(phaseQuery, [newProjectId]);
     const defaultPhaseId = phaseRes.rows[0].phase_id;
@@ -131,7 +152,12 @@ exports.createProject = async (req, res) => {
   } catch (error) {
     await client.query('ROLLBACK');
     console.error('Proje oluşturma hatası:', error);
-    res.status(500).json({ message: 'Sunucu hatası, proje oluşturulamadı' });
+    // Hata mesajını frontend'e daha açık gönderelim
+    if (error.code === '23505') {
+        res.status(400).json({ message: 'Proje kodu çakışması yaşandı, lütfen tekrar deneyin.' });
+    } else {
+        res.status(500).json({ message: 'Sunucu hatası, proje oluşturulamadı' });
+    }
   } finally {
     client.release();
   }
@@ -202,7 +228,7 @@ exports.getProjectStats = async (req, res) => {
   const userId = req.user.userId;
 
   try {
-    // 1. Erişim kontrolü
+    // 1. Erişim kontrolü (Aynı kalıyor)
     const accessQuery = `
         SELECT company_id, 
         EXISTS(SELECT 1 FROM project_users WHERE project_id = projects.project_id AND user_id = $1) as is_member
@@ -214,36 +240,35 @@ exports.getProjectStats = async (req, res) => {
     
     const p = accessRes.rows[0];
     const userRole = req.user.role;
-    // Admin değilse, üye değilse ve şirket eşleşmiyorsa engelle
     if (userRole !== 'admin' && !p.is_member && p.company_id !== req.user.companyId) {
         return res.status(403).json({ message: 'Erişim yetkiniz yok' });
     }
 
     // 2. TÜM SÜTUNLARI VE GÖREV SAYILARINI ÇEK
-    // İsim tahminine gerek yok. Her sütunun kaç görevi olduğunu ve sırasını (order_index) çekiyoruz.
+    // DÜZELTME 1: 'pc.title' alanını da çekiyoruz ki isme göre kontrol edebilelim.
     const statsQuery = `
       SELECT
         pp.phase_id,
         pp.name AS phase_name,
         pc.column_id,
+        pc.title AS column_title,  -- YENİ: Sütun Başlığı
         pc.order_index,
         COUNT(t.task_id) AS task_count,
-        SUM(t.estimated_cost) AS total_estimated_cost, -- YENİ: Tahmini Maliyet Toplamı
-        SUM(t.actual_cost) AS total_actual_cost        -- YENİ: Gerçekleşen Maliyet Toplamı
+        SUM(t.estimated_cost) AS total_estimated_cost,
+        SUM(t.actual_cost) AS total_actual_cost
       FROM project_phases pp
       JOIN project_columns pc ON pp.phase_id = pc.phase_id
       LEFT JOIN tasks t ON t.status = pc.column_id::text
       WHERE pp.project_id = $1
-      GROUP BY pp.phase_id, pp.name, pc.column_id, pc.order_index
+      GROUP BY pp.phase_id, pp.name, pc.column_id, pc.title, pc.order_index -- YENİ: pc.title eklendi
       ORDER BY pp.order_index ASC
     `;
     
     const { rows } = await pool.query(statsQuery, [projectId]);
     
-    // 3. VERİYİ JS TARAFINDA GRUPLA (Daha güvenli ve esnek)
+    // 3. VERİYİ JS TARAFINDA GRUPLA
     let total = 0, completed = 0, inProgress = 0, todo = 0;
     
-    // YENİ: Global Maliyet Değişkenleri
     let projectBudget = 0; 
     let projectSpent = 0;
 
@@ -260,7 +285,8 @@ exports.getProjectStats = async (req, res) => {
         }
         phasesMap[row.phase_id].columns.push({
             count: parseInt(row.task_count),
-            order: row.order_index
+            order: row.order_index,
+            title: row.column_title // YENİ: Başlık bilgisini sakla
         });
         projectBudget += parseFloat(row.total_estimated_cost || 0);
         projectSpent += parseFloat(row.total_actual_cost || 0);
@@ -268,40 +294,40 @@ exports.getProjectStats = async (req, res) => {
 
     // Her faz için hesaplama yap
     Object.values(phasesMap).forEach(phase => {
-        // Sütunları sırasına göre diz (Garanti olsun)
         const cols = phase.columns.sort((a, b) => a.order - b.order);
         
         let p_total = 0, p_completed = 0, p_inProgress = 0, p_todo = 0;
 
         if (cols.length > 0) {
-            // MANTIK: 
-            // - İlk Sütun (Index 0) -> Yapılacaklar (Todo)
-            // - Son Sütun (Index Length-1) -> Tamamlandı (Done)
-            // - Aradakiler -> Devam Eden (In Progress)
-
             cols.forEach((col, index) => {
                 p_total += col.count;
+                
+                // DÜZELTME 2: İsim Kontrolü Yapıyoruz (Daha Güvenilir)
+                const titleLower = col.title ? col.title.toLowerCase().trim() : '';
 
-                if (index === 0) {
-                    // İlk Sütun: Yapılacaklar
-                    p_todo += col.count;
-                } else if (index === cols.length - 1 && cols.length > 1) {
-                    // Son Sütun (Eğer tek sütun değilse): Tamamlandı
+                if (titleLower === 'tamamlandı' || titleLower === 'done' || titleLower === 'biten') {
+                    // Sütun adı "Tamamlandı" ise kesinlikle completed say.
                     p_completed += col.count;
-                } else {
-                    // Aradaki Sütunlar: Devam Eden
+                } else if (titleLower === 'yapılacaklar' || titleLower === 'todo' || titleLower === 'bekleyen') {
+                    // Sütun adı "Yapılacaklar" ise todo say.
+                    p_todo += col.count;
+                } else if (titleLower === 'devam eden' || titleLower === 'in progress' || titleLower === 'sürüyor') {
+                    // Sütun adı "Devam Eden" ise inProgress say.
                     p_inProgress += col.count;
+                } else {
+                    // Eğer özel isimli bir sütunsa, eski usül sıraya bak (Yedek Plan)
+                    if (index === 0) p_todo += col.count;
+                    else if (index === cols.length - 1) p_completed += col.count;
+                    else p_inProgress += col.count;
                 }
             });
         }
 
-        // Genel Toplamlara Ekle
         total += p_total;
         completed += p_completed;
         inProgress += p_inProgress;
         todo += p_todo;
 
-        // Faz İstatistiği Listesine Ekle
         phaseStats.push({
             phase_id: phase.phase_id,
             phase_name: phase.phase_name,
@@ -317,14 +343,12 @@ exports.getProjectStats = async (req, res) => {
         completedTasks: completed,
         inProgressTasks: inProgress,
         todoTasks: todo,
-        phaseStats: phaseStats, // Senin hesapladığın dizi
-        
-        // YENİ: Finansal Verileri Response'a Ekle
+        phaseStats: phaseStats,
         budget: {
             total: projectBudget,
             spent: projectSpent,
             remaining: projectBudget - projectSpent,
-            currency: '₺' // İleride dinamik yapılabilir
+            currency: '₺'
         }
     };
 
