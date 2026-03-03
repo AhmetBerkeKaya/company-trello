@@ -201,7 +201,7 @@ exports.updateTaskLocation = async (req, res) => {
 
 exports.updateTaskStatus = async (req, res) => {
   const { taskId } = req.params;
-  const { status } = req.body;
+  const { status } = req.body; // Bu şu an çirkin bir UUID
   const { userId, name, role } = req.user;
 
   const client = await pool.connect();
@@ -245,12 +245,28 @@ exports.updateTaskStatus = async (req, res) => {
     `;
     const updateRes = await client.query(updateQuery, [status, taskId]);
     
+    // --- YENİ EKLENEN PROFESYONEL DÜZELTME BAŞLANGICI ---
+    // Çirkin UUID'nin gerçek faz (aşama) adını veritabanından çekelim
+    let statusName = status; // Varsayılan olarak kalsın (hata olursa sistem çökmesin diye)
+    try {
+      // DÜZELTİLDİ: Tablo adı 'columns', aranacak sütun 'column_id', isim 'title' yapıldı.
+      const columnQuery = `SELECT title FROM project_columns WHERE column_id = $1`; 
+      const columnRes = await client.query(columnQuery, [status]);
+      if (columnRes.rows.length > 0) {
+        statusName = columnRes.rows[0].title; // Çirkin ID, mis gibi "Yapılacaklar" oldu!
+      }
+    } catch (nameError) {
+      console.log('Sütun adı çekilemedi, ID ile devam edilecek:', nameError.message);
+    }
+    // --- DÜZELTME BİTİŞİ ---
+
     if (task.assignee_user_id && task.assignee_user_id !== userId) {
       await createNotification(client, {
         userId: task.assignee_user_id,
         type: 'task_updated',
         title: `Görev Durumu Değişti: ${task.title}`,
-        message: `${name}, görevinizin durumunu "${status}" olarak değiştirdi.`,
+        // Mesajın içine artık çirkin status'u değil, tertemiz statusName'i koyuyoruz:
+        message: `${name}, görevinizin durumunu "${statusName}" olarak değiştirdi.`,
         projectId: task.project_id,
         taskId: taskId,
         senderId: userId,

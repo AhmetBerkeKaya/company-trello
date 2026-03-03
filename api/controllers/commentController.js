@@ -29,10 +29,9 @@ exports.getCommentsForTask = async (req, res) => {
 exports.addCommentToTask = async (req, res) => {
   const { taskId } = req.params;
   const { text, projectId } = req.body;
-  const { userId: commenterId, name: commenterName, role: commenterRole } = req.user;
+  const { userId: commenterId, name: commenterName } = req.user;
 
   try {
-    // 1. Görevin sahibini (assignee) ve proje yöneticisini bul
     const taskQuery = `
       SELECT t.assignee_user_id, t.title, p.project_manager
       FROM tasks t
@@ -40,55 +39,30 @@ exports.addCommentToTask = async (req, res) => {
       WHERE t.task_id = $1
     `;
     const taskRes = await pool.query(taskQuery, [taskId]);
-    if (taskRes.rows.length === 0) {
-      return res.status(404).json({ message: 'İlişkili görev bulunamadı' });
-    }
+    if (taskRes.rows.length === 0) return res.status(404).json({ message: 'Görev bulunamadı' });
     const task = taskRes.rows[0];
 
-    // 2. Yorumu veritabanına ekle
     const query = `
-      INSERT INTO comments (text, task_id, project_id, created_by_user_id, user_info_name, user_info_role)
-      VALUES ($1, $2, $3, $4, $5, $6)
-      RETURNING *
+      INSERT INTO comments (text, task_id, project_id, created_by_user_id, user_info_name)
+      VALUES ($1, $2, $3, $4, $5) RETURNING *
     `;
-    const { rows } = await pool.query(query, [
-      text, taskId, projectId, commenterId, commenterName, commenterRole
-    ]);
-
+    const { rows } = await pool.query(query, [text, taskId, projectId, commenterId, commenterName]);
     const newComment = { ...rows[0], id: rows[0].comment_id };
-    
-    // --- BİLDİRİM MANTIĞI ---
-    const recipients = new Set();
-    
-    // 1. Görevin sahibini ekle (eğer varsa ve yorumu yapan kişi değilse)
+
+    // Bildirim gönderimi
     if (task.assignee_user_id && task.assignee_user_id !== commenterId) {
-      recipients.add(task.assignee_user_id);
-    }
-    
-    // 2. Projenin yöneticisini ekle (eğer varsa ve yorumu yapan kişi değilse)
-    if (task.project_manager && task.project_manager !== commenterId) {
-      recipients.add(task.project_manager);
-    }
-    
-    // 3. Bu kişilere bildirim yolla
-    for (const userId of recipients) {
       await createNotification(null, {
-        userId: userId,
+        userId: task.assignee_user_id,
         type: 'comment_added',
         title: `Yeni Yorum: ${task.title}`,
-        message: `${commenterName}, ilgili olduğunuz bir göreve yorum yaptı.`,
-        projectId: projectId,
-        taskId: taskId,
-        senderId: commenterId,
-        senderName: commenterName,
-        link: `/projects/${projectId}`
+        message: `${commenterName} bir yorum yaptı.`,
+        projectId, taskId, senderId: commenterId, senderName: commenterName, link: `/projects/${projectId}`
       });
     }
-    // --- BİLDİRİM SONU ---
     
     res.status(201).json(newComment);
   } catch (error) {
-    console.error('Yorum ekleme hatası:', error);
+    console.error('Yorum hatası:', error);
     res.status(500).json({ message: 'Sunucu hatası' });
   }
 };

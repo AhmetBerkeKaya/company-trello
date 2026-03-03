@@ -22,9 +22,7 @@ const Login = () => {
       // 1. Giriş işlemini yap
       await login(email, password);
       
-      // 2. YÖNLENDİRME (GÜNCELLENDİ)
-      // Artık ayrım yok. Müşteri de olsa, personel de olsa ana akışa dahil oluyor.
-      // İçerik, kullanıcının rolüne göre (ProjectDetail vb. sayfalarda) kısıtlanacak.
+      // 2. YÖNLENDİRME
       navigate('/'); 
 
     } catch (error) {
@@ -48,82 +46,105 @@ const Login = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md w-full bg-white rounded-2xl shadow-xl overflow-hidden">
-        <div className="bg-blue-600 py-6 px-8">
-          <h2 className="text-center text-3xl font-extrabold text-white">
-            Şirket Adı
-          </h2>
-          <p className="mt-2 text-center text-blue-100 text-sm">
-            Proje Yönetim Sistemi
-          </p>
-        </div>
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 relative overflow-hidden py-12 px-4 sm:px-6 lg:px-8">
+      
+      {/* --- Arka Plan Dekoratif Elementleri (Glassmorphism & Glow) --- */}
+      <div className="absolute inset-0 z-0 pointer-events-none">
+        <div className="absolute -top-40 -right-40 w-[30rem] h-[30rem] bg-gradient-to-br from-blue-400 to-indigo-600 rounded-full mix-blend-multiply filter blur-[100px] opacity-40 animate-pulse"></div>
+        <div className="absolute -bottom-40 -left-20 w-[30rem] h-[30rem] bg-gradient-to-tr from-cyan-300 to-blue-500 rounded-full mix-blend-multiply filter blur-[100px] opacity-40"></div>
+      </div>
+
+      {/* --- Ana Giriş Kartı --- */}
+      <div className="max-w-md w-full z-10 bg-white/80 backdrop-blur-xl rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.08)] border border-white/60 overflow-hidden transition-all">
         
-        <div className="py-8 px-8">
-          <div className="text-center mb-6">
-            <h3 className="text-lg font-semibold text-gray-900">Sisteme Giriş Yapın</h3>
-            <p className="text-gray-600 text-sm mt-1">
-              Lütfen hesap bilgilerinizle giriş yapın
+        <div className="py-10 px-8 sm:px-10">
+          
+          {/* Logo / Başlık Alanı */}
+          <div className="text-center mb-10">
+            <h1 className="text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-blue-700 to-indigo-700 tracking-tight mb-2">
+              ProAEC
+            </h1>
+            <p className="text-sm font-semibold text-gray-400 uppercase tracking-widest">
+              Proje Yönetim Sistemi
             </p>
           </div>
 
-          <form className="space-y-4" onSubmit={handleSubmit}>
+          <form className="space-y-6" onSubmit={handleSubmit}>
+            
+            {/* Hata Mesajı Kutusu */}
             {error && (
-              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
-                {error}
+              <div className="bg-red-50/80 backdrop-blur-sm border-l-4 border-red-500 text-red-700 p-4 rounded-r-lg shadow-sm text-sm animate-fade-in">
+                <div className="flex items-center">
+                  <svg className="w-5 h-5 mr-2 text-red-500" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                  </svg>
+                  <span className="font-medium">{error}</span>
+                </div>
               </div>
             )}
             
+            {/* E-Posta Input */}
             <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="email" className="block text-sm font-semibold text-gray-700 mb-1.5 ml-1">
                 E-posta Adresi
               </label>
-              <input
-                id="email"
-                name="email"
-                type="email"
-                autoComplete="email"
-                required
-                className="appearance-none relative block w-full px-3 py-3 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                placeholder="E-posta adresiniz"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-              />
+              <div className="relative">
+                <input
+                  id="email"
+                  name="email"
+                  type="email"
+                  autoComplete="email"
+                  required
+                  className="block w-full pl-4 pr-4 py-3.5 bg-gray-50/50 border border-gray-200 text-gray-900 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200 ease-in-out sm:text-sm shadow-sm"
+                  placeholder="ornek@proaec.com.tr"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                />
+              </div>
             </div>
 
+            {/* Şifre Input */}
             <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="password" className="block text-sm font-semibold text-gray-700 mb-1.5 ml-1">
                 Şifre
               </label>
-              <input
-                id="password"
-                name="password"
-                type="password"
-                autoComplete="current-password"
-                required
-                className="appearance-none relative block w-full px-3 py-3 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                placeholder="Şifreniz"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
+              <div className="relative">
+                <input
+                  id="password"
+                  name="password"
+                  type="password"
+                  autoComplete="current-password"
+                  required
+                  className="block w-full pl-4 pr-4 py-3.5 bg-gray-50/50 border border-gray-200 text-gray-900 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200 ease-in-out sm:text-sm shadow-sm"
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+              </div>
             </div>
 
-            <div>
+            {/* Giriş Butonu */}
+            <div className="pt-2">
               <button
                 type="submit"
                 disabled={isLoading}
-                className="group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-lg text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
+                className="group relative w-full flex justify-center items-center py-3.5 px-4 border border-transparent text-sm font-bold rounded-xl text-white bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-70 disabled:cursor-not-allowed transition-all duration-300 shadow-[0_4px_14px_0_rgb(37,99,235,0.39)] hover:shadow-[0_6px_20px_rgba(37,99,235,0.23)] hover:-translate-y-0.5"
               >
                 {isLoading ? (
-                  <LoadingSpinner size="small" />
+                  <div className="flex items-center space-x-2">
+                    <LoadingSpinner size="small" />
+                    <span>Giriş Yapılıyor...</span>
+                  </div>
                 ) : (
-                  'Giriş Yap'
+                  'Sisteme Giriş Yap'
                 )}
               </button>
             </div>
+            
           </form>
         </div>
       </div>
+      
     </div>
   );
 };

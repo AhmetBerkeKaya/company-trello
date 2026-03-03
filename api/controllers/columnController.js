@@ -1,20 +1,11 @@
-// api/controllers/columnController.js
 const pool = require('../db');
 
-// GET /api/projects/:projectId/columns (GÜNCELLENDİ)
 exports.getColumns = async (req, res) => {
-  // DİKKAT: Artık projectId değil, phaseId alıyoruz. 
-  // route dosyasında '/phases/:phaseId/columns' tanımlı olmalı.
   const { phaseId } = req.params; 
-  const userId = req.user.userId;
-  const companyId = req.user.companyId;
-
-  // Eğer route hala '/projects/:projectId/columns' ise req.params.projectId gelebilir,
-  // ama frontend '/phases/...' atıyorsa route dosyasında da ':phaseId' olmalı.
-  // Varsayım: Route dosyasını güncellemiştin, burada phaseId yakalıyoruz.
+  const { userId, companyId, role } = req.user;
 
   try {
-    // 1. Fazın hangi projeye ait olduğunu bul ve Erişim Kontrolü Yap
+    // Erişim Kontrolü: Fazın bağlı olduğu projenin sahibi veya üyesi mi?
     const checkQuery = `
         SELECT pp.project_id, p.company_id,
         EXISTS(SELECT 1 FROM project_users pu WHERE pu.project_id = p.project_id AND pu.user_id = $1) as is_member
@@ -27,27 +18,16 @@ exports.getColumns = async (req, res) => {
     if (checkRes.rows.length === 0) return res.status(404).json({ message: 'Faz bulunamadı' });
     
     const info = checkRes.rows[0];
-    
-    // Erişim Kontrolü (Üye mi, Şirket sahibi mi, Admin mi?)
-    const hasAccess = (info.company_id === companyId) || info.is_member || req.user.role === 'admin';
+    const hasAccess = (info.company_id === companyId) || info.is_member || role === 'admin';
 
-    if (!hasAccess) {
-        return res.status(403).json({ message: 'Yetkisiz erişim' });
-    }
+    if (!hasAccess) return res.status(403).json({ message: 'Yetkisiz erişim' });
 
-    // 2. O faza ait sütunları getir
-    const query = `
-      SELECT * FROM project_columns 
-      WHERE phase_id = $1 
-      ORDER BY order_index ASC
-    `;
+    const query = 'SELECT * FROM project_columns WHERE phase_id = $1 ORDER BY order_index ASC';
     const { rows } = await pool.query(query, [phaseId]);
     
-    const columns = rows.map(col => ({ ...col, id: col.column_id }));
-
-    res.status(200).json(columns);
+    res.status(200).json(rows.map(col => ({ ...col, id: col.column_id })));
   } catch (error) {
-    console.error('Sütunları getirme hatası:', error);
+    console.error('Sütun getirme hatası:', error);
     res.status(500).json({ message: 'Sunucu hatası' });
   }
 };

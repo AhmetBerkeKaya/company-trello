@@ -93,14 +93,31 @@ exports.uploadAndTranslate = async (req, res) => {
 
         // F) Çeviri (Senin orijinal kodundaki ayarlar)
         const isZip = objectName.toLowerCase().endsWith('.zip');
+        const isIfc = objectName.toLowerCase().endsWith('.ifc'); // Kontrol ekledik
+
+        // Varsayılan ayar (RVT, DWG, IAM vs. eskisi gibi çalışmaya devam eder)
+        let outputConfig = { type: 'svf', views: ['3d'] };
+        
+        // EĞER dosya IFC ise, ayarı güncelle (Diğerlerini etkilemez)
+        if (isIfc) {
+            outputConfig = {
+                type: 'svf',
+                views: ['2d', '3d'], // IFC için 2D planları da almak iyidir
+                advanced: {
+                    conversionMethod: 'modern', // İşte sihirli değnek bu
+                    generateMasterViews: true
+                }
+            };
+        }
+
         const jobConfig = {
             input: { 
-                urn, 
+                urn: urn, 
                 compressedUrn: isZip, 
-                rootFilename: objectName // Senin kodunda bu vardı, aynen bıraktım
+                rootFilename: objectName 
             },
             output: { 
-                formats: [{ type: 'svf', views: ['3d'] }] // Sadece 3D istiyoruz
+                formats: [ outputConfig ] 
             }
         };
 

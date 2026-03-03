@@ -24,6 +24,7 @@
     "react-pdf": "^10.2.0",
     "react-router-dom": "^7.9.4",
     "react-scripts": "5.0.1",
+    "resend": "^6.9.3",
     "three": "^0.160.0",
     "three-stdlib": "^2.29.4",
     "web-vitals": "^2.1.4",

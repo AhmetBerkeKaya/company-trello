@@ -1,55 +1,39 @@
 // api/utils/notificationService.js
 const pool = require('../db');
-const nodemailer = require('nodemailer');
-
-// 1. Nodemailer Taşıyıcısını Oluştur
-// .env dosyasındaki değişkenleri kullanır
-let transporter;
-try {
-  transporter = nodemailer.createTransport({
-    host: process.env.EMAIL_HOST,
-    port: process.env.EMAIL_PORT,
-    secure: process.env.EMAIL_PORT == 465, // Port 465 için true, diğerleri için false
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS,
-    },
-  });
-
-  transporter.verify(function (error, success) {
-    if (error) {
-      console.error('SMTP Bağlantı Hatası (Nodemailer):', error);
-    } else {
-      console.log('✅ Nodemailer (SMTP) Sunucusu Bağlantısı Başarılı.');
-    }
-  });
-
-} catch (e) {
-  console.error('Nodemailer Transport oluşturulamadı:', e);
-}
-
+const axios = require('axios'); // Nodemailer çöpe, projede zaten olan axios sahnede!
 
 /**
- * Dahili (yardımcı) e-posta gönderme fonksiyonu
+ * Dahili (yardımcı) e-posta gönderme fonksiyonu (Brevo API üzerinden)
  */
 const sendEmail = async ({ to, subject, html }) => {
-  if (!transporter) {
-    console.error('E-posta gönderilemedi: Transporter ayarlanmamış.');
+  if (!process.env.BREVO_API_KEY) {
+    console.error('E-posta gönderilemedi: BREVO_API_KEY eksik.');
     return;
   }
   
-  const mailOptions = {
-    from: process.env.EMAIL_FROM, // .env'den gelen gönderici adı
-    to: to,
-    subject: subject,
-    html: html,
-  };
-
   try {
-    let info = await transporter.sendMail(mailOptions);
-    console.log(`E-posta gönderildi: ${info.messageId} -> ${to}`);
+    // Render duvarını aşan HTTP API İsteği
+    await axios.post(
+      'https://api.brevo.com/v3/smtp/email',
+      {
+        sender: { 
+          name: 'ProAEC Yönetim Sistemi', 
+          email: process.env.EMAIL_USER // .env dosyasındaki Gmail/Kurumsal adresin
+        },
+        to: [{ email: to }],
+        subject: subject,
+        htmlContent: html
+      },
+      {
+        headers: {
+          'api-key': process.env.BREVO_API_KEY,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+    console.log(`✅ E-posta HTTP API ile gönderildi -> ${to}`);
   } catch (error) {
-    console.error(`E-posta gönderme hatası (${to}):`, error);
+    console.error(`❌ E-posta gönderme hatası (${to}):`, error.response ? error.response.data : error.message);
   }
 };
 
@@ -57,24 +41,13 @@ const sendEmail = async ({ to, subject, html }) => {
  * Veritabanına yeni bir bildirim ekler VE e-posta ayarları açıksa e-posta gönderir.
  */
 const createNotification = async (client, {
-  userId,
-  type,
-  title,
-  message,
-  projectId,
-  taskId,
-  senderId,
-  senderName,
-  link
+  userId, type, title, message, projectId, taskId, senderId, senderName, link
 }) => {
   
-  // Eğer bir veritabanı 'transaction'ı içindeysek 'client'ı,
-  // değilsek 'pool'u kullan.
   const db = client || pool;
 
-  // --- E-POSTA GÖNDERİM MANTIĞI (YENİ) ---
+  // --- E-POSTA GÖNDERİM MANTIĞI ---
   try {
-    // 1. Kullanıcının e-posta ve ayarlarını al
     const userRes = await db.query(
       "SELECT email, notification_settings FROM users WHERE user_id = $1",
       [userId]
@@ -82,36 +55,52 @@ const createNotification = async (client, {
 
     if (userRes.rows.length > 0) {
       const user = userRes.rows[0];
-      
-      // 2. Ayarları kontrol et (JSONB'deki 'email' alanı)
       const emailEnabled = user.notification_settings?.email;
 
       if (emailEnabled && user.email) {
-        // 3. E-postayı gönder (Asenkron - bekleme yapma)
         const emailHtml = `
-          <p>Merhaba,</p>
-          <p>${message}</p>
-          <p>Detaylar için <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}${link || '/'}">uygulamaya gidin</a>.</p>
+          <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden; background-color: #ffffff;">
+            
+            <div style="background-color: #2563EB; padding: 20px; text-align: center;">
+              <h2 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 600; letter-spacing: 0.5px;">ProAEC Yönetim Sistemi</h2>
+            </div>
+            
+            <div style="padding: 30px; color: #333333;">
+              <p style="font-size: 16px; margin-bottom: 20px;">Merhaba,</p>
+              <p style="font-size: 16px; line-height: 1.6; margin-bottom: 30px; color: #4a5568;">
+                <strong>${message}</strong>
+              </p>
+              
+              <div style="text-align: center; margin-top: 40px; margin-bottom: 10px;">
+                <a href="${process.env.FRONTEND_URL || 'http://www.aecworks.tr'}${link || '/'}" 
+                   style="background-color: #2563EB; color: #ffffff; padding: 14px 28px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block; font-size: 15px; box-shadow: 0 2px 4px rgba(37, 99, 235, 0.2);">
+                   Detayları Görüntüle
+                </a>
+              </div>
+            </div>
+            
+            <div style="background-color: #f8f9fa; padding: 15px; text-align: center; font-size: 12px; color: #6b7280; border-top: 1px solid #e5e7eb;">
+              Bu e-posta ProAEC sistemi tarafından size özel otomatik olarak gönderilmiştir. Lütfen doğrudan yanıtlamayınız.
+              <br><br>
+              &copy; ${new Date().getFullYear()} PROAEC Yazılım Destek Hizmetleri
+            </div>
+          </div>
         `;
         
+        // Asenkron gönder (sistemi bekletmez)
         sendEmail({
           to: user.email,
           subject: title,
           html: emailHtml
-        }); // .catch() bloğu sendEmail içinde yönetiliyor
-        
-      } else {
-        console.log(`E-posta gönderimi kapalı veya e-posta yok: ${userId}`);
+        }); 
       }
     }
   } catch (emailError) {
-    console.error('Bildirim (e-posta) hatası:', emailError);
-    // E-posta başarısız olsa bile DB bildirimine devam et
+    console.error('Bildirim (e-posta ön hazırlık) hatası:', emailError);
   }
   // --- E-POSTA MANTIĞI SONU ---
 
-
-  // --- DB BİLDİRİM MANTIĞI (MEVCUT) ---
+  // --- DB BİLDİRİM MANTIĞI ---
   try {
     const query = `
       INSERT INTO notifications (
@@ -120,22 +109,10 @@ const createNotification = async (client, {
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
     `;
 
-    await db.query(query, [
-      userId,
-      type,
-      title,
-      message,
-      projectId,
-      taskId,
-      senderId,
-      senderName,
-      link
-    ]);
-    
+    await db.query(query, [userId, type, title, message, projectId, taskId, senderId, senderName, link]);
     console.log(`✅ DB Bildirimi oluşturuldu: ${type} -> ${userId}`);
     
   } catch (error) {
-    // Bildirim hatası ana işlemi (örn: görev oluşturma) durdurmamalı.
     console.error('Bildirim (DB) oluşturma hatası (servis):', error);
   }
 };

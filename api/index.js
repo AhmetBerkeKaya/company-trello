@@ -48,7 +48,6 @@ app.use('/api/companies', companyRoutes);
 app.use('/api/files', fileRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/meeting-requests', meetingRequestRoutes);
-app.use('/api', columnRoutes);
 app.use('/api', phaseRoutes);
 app.use('/api/phases', phaseRoutes);
 app.use('/api/reports', reportRoutes);
