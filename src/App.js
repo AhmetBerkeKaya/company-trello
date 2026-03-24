@@ -1,3 +1,4 @@
+// src/App.js
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
@@ -12,6 +13,8 @@ import './index.css';
 import AdminUsers from './pages/AdminUsers';
 import Profile from './pages/Profile';
 import Customers from './pages/Customers';
+import Notifications from './pages/Notifications';
+import MyTasks from './pages/MyTasks'; // YENİ EKLENDİ
 
 function App() {
   return (
@@ -33,12 +36,13 @@ function App() {
                       <Route path="/meetings" element={<Meetings />} />
                       <Route path="/admin/users" element={<AdminUsers />} />
                       <Route path="/profile" element={<Profile />} />
+                      <Route path="/notifications" element={<Notifications />} />
+                      <Route path="/my-tasks" element={<MyTasks />} /> {/* YENİ EKLENDİ */}
                       <Route path="/customers" element={
                         <PrivateRoute>
                           <Customers />
                         </PrivateRoute>
                       } />
-                      
                     </Routes>
                   </div>
                 </PrivateRoute>

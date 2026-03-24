@@ -16,4 +16,7 @@ router.post('/read-all', notificationController.markAllNotificationsAsRead);
 // POST /api/notifications/:notificationId/read (Tekil okundu yap)
 router.post('/:notificationId/read', notificationController.markNotificationAsRead);
 
+// Dosyanın alt kısımlarına şu satırı ekle:
+router.delete('/:id', notificationController.deleteNotification);
+
 module.exports = router;

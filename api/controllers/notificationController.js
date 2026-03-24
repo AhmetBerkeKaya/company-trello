@@ -71,3 +71,22 @@ exports.markAllNotificationsAsRead = async (req, res) => {
     res.status(500).json({ message: 'Sunucu hatası' });
   }
 };
+
+// DELETE /api/notifications/:id
+exports.deleteNotification = async (req, res) => {
+  const { id } = req.params;
+  const userId = req.user.userId; // Güvenlik: Sadece kendi bildirimini silsin
+  
+  try {
+    const { rowCount } = await pool.query(
+      'DELETE FROM notifications WHERE notification_id = $1 AND user_id = $2', 
+      [id, userId]
+    );
+    
+    if (rowCount === 0) return res.status(404).json({ message: 'Bildirim bulunamadı veya yetkiniz yok' });
+    res.status(200).json({ message: 'Bildirim başarıyla silindi' });
+  } catch (error) {
+    console.error('Bildirim silme hatası:', error);
+    res.status(500).json({ message: 'Sunucu hatası' });
+  }
+};

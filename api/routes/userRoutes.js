@@ -8,25 +8,21 @@ const authMiddleware = require('../middleware/authMiddleware');
 router.use(authMiddleware);
 
 // --- "Benimle" (Kişisel) İlgili Yollar ---
-// (Bu yolların '/:userId'den ÖNCE gelmesi gerekir)
-
-// GET /api/users/me/stats (Profilim İstatistikleri)
 router.get('/me/stats', userController.getUserStats);
-
-// PUT /api/users/me/profile (Profilimi Güncelle)
 router.put('/me/profile', userController.updateUserProfile);
-
-// PUT /api/users/me/password (Şifremi Güncelle)
 router.put('/me/password', userController.updateUserPassword);
-
-// PUT /api/users/me/settings (Ayarlarımı Güncelle)
 router.put('/me/settings', userController.updateUserSettings);
 
-
 // --- Diğer Kullanıcılarla İlgili Yollar ---
-
 // GET /api/users (Tüm liste - Admin)
 router.get('/', userController.getAllUsers);
+
+// POST /api/users (Kullanıcı Ekleme - Admin)
+router.post('/', userController.createUser);
+
+// YENİ: PUT ve DELETE işlemleri
+router.put('/:userId', userController.updateUser);
+router.delete('/:userId', userController.deleteUser);
 
 // GET /api/users/role/managers (Tüm admin/manager'lar)
 router.get('/role/managers', userController.getManagersAndAdmins);
@@ -38,7 +34,6 @@ router.put('/:userId/role', userController.updateUserRole);
 router.put('/:userId/department', userController.updateUserDepartment);
 
 // GET /api/users/:userId (Tek kullanıcı detayı - Herkes)
-// (DİNAMİK YOL HEP EN SONDA OLMALI)
 router.get('/:userId', userController.getUserById);
 
 module.exports = router;

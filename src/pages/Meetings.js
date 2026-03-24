@@ -13,17 +13,16 @@ const Meetings = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const [meetings, setMeetings] = useState([]);
-  const [meetingRequests, setMeetingRequests] = useState([]); // YENİ
+  const [meetingRequests, setMeetingRequests] = useState([]); 
   const [showMeetingModal, setShowMeetingModal] = useState(false);
   const [showMeetingRequestModal, setShowMeetingRequestModal] = useState(false);
   const [selectedMeeting, setSelectedMeeting] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState('calendar'); // 'calendar', 'list', 'requests'
-  const [loadingRequests, setLoadingRequests] = useState(false); // YENİ
+  const [view, setView] = useState('calendar'); 
+  const [loadingRequests, setLoadingRequests] = useState(false); 
 
   const isManagerOrAdmin = userData?.role === 'admin' || userData?.role === 'manager';
 
-  // YENİ: URL'den '?view=requests' parametresini oku
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const viewParam = params.get('view');
@@ -39,7 +38,6 @@ const Meetings = () => {
   }, [location.state]);
 
   useEffect(() => {
-    // Tüm verileri çek
     fetchAllData();
   }, [userData]);
 
@@ -47,7 +45,6 @@ const Meetings = () => {
     if (!userData) return;
     setLoading(true);
     try {
-      // Her iki API isteğini de aynı anda yap
       const promises = [fetchMeetings()];
       if (isManagerOrAdmin) {
         promises.push(fetchMeetingRequests());
@@ -77,7 +74,6 @@ const Meetings = () => {
     }
   };
 
-  // YENİ: Toplantı İsteklerini Çek
   const fetchMeetingRequests = async () => {
     if (!isManagerOrAdmin) return;
     setLoadingRequests(true);
@@ -91,15 +87,14 @@ const Meetings = () => {
     }
   };
 
-  // YENİ: İsteği Onayla
   const handleApproveRequest = async (requestId) => {
     if (!window.confirm('Bu toplantı isteğini onaylayıp, ilgili proje üyeleri ve yöneticilerle bir toplantı oluşturmak istediğinizden emin misiniz?')) return;
     
     setLoadingRequests(true);
     try {
       await api.put(`/meeting-requests/${requestId}/approve`);
-      await fetchMeetingRequests(); // İstek listesini yenile
-      await fetchMeetings();      // Toplantı listesini yenile
+      await fetchMeetingRequests(); 
+      await fetchMeetings();      
       alert('✅ İstek onaylandı ve toplantı oluşturuldu!');
     } catch (error) {
       console.error('İstek onaylama hatası:', error);
@@ -109,14 +104,13 @@ const Meetings = () => {
     }
   };
 
-  // YENİ: İsteği Reddet
   const handleRejectRequest = async (requestId) => {
     if (!window.confirm('Bu toplantı isteğini reddetmek istediğinizden emin misiniz?')) return;
     
     setLoadingRequests(true);
     try {
       await api.put(`/meeting-requests/${requestId}/reject`);
-      await fetchMeetingRequests(); // İstek listesini yenile
+      await fetchMeetingRequests(); 
       alert('❌ İstek reddedildi.');
     } catch (error) {
       console.error('İstek reddetme hatası:', error);
@@ -126,7 +120,6 @@ const Meetings = () => {
     }
   };
 
-  // --- Modal Fonksiyonları (Artık çalışıyor) ---
   const handleCreateMeeting = () => {
     setSelectedMeeting(null);
     setShowMeetingModal(true);
@@ -146,333 +139,255 @@ const Meetings = () => {
     setShowMeetingRequestModal(false);
   };
 
-  // Filtreleme
   const upcomingMeetings = meetings.filter(meeting => meeting.startTime && meeting.startTime > new Date());
   const pastMeetings = meetings.filter(meeting => meeting.startTime && meeting.startTime <= new Date());
   const pendingRequests = meetingRequests.filter(req => req.status === 'pending');
 
   if (loading) {
     return (
-      <div className="max-w-7xl mx-auto py-6 px-4">
-        <div className="flex justify-center items-center h-64">
-          <LoadingSpinner size="large" />
-        </div>
+      <div className="min-h-screen flex flex-col justify-center items-center">
+        <LoadingSpinner size="large" />
+        <p className="mt-4 font-black text-[10px] uppercase tracking-[0.3em] text-gray-400">Veriler Yükleniyor</p>
       </div>
     );
   }
 
   return (
-    <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
-      {/* Header */}
-      <div className="flex justify-between items-center mb-8">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Toplantılarım</h1>
-          <p className="text-gray-600 dark:text-gray-400 mt-2">
-            Toplantılarınızı takip edin, yönetin ve istekleri değerlendirin.
-          </p>
-        </div>
-
-        <div className="flex items-center space-x-4">
-          {/* YENİ: View Toggle (İstekler eklendi) */}
-          <div className="bg-gray-100 dark:bg-gray-700 rounded-lg p-1 flex">
-            <button
-              onClick={() => setView('calendar')}
-              className={`px-3 py-2 text-sm font-medium rounded-md transition-colors ${view === 'calendar'
-                  ? 'bg-white dark:bg-gray-600 text-blue-600 dark:text-blue-400 shadow-sm'
-                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'
-                }`}
-            >
-              📅 Takvim
-            </button>
-            <button
-              onClick={() => setView('list')}
-              className={`px-3 py-2 text-sm font-medium rounded-md transition-colors ${view === 'list'
-                  ? 'bg-white dark:bg-gray-600 text-blue-600 dark:text-blue-400 shadow-sm'
-                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'
-                }`}
-            >
-              📋 Ajanda
-            </button>
-            {isManagerOrAdmin && (
-              <button
-                onClick={() => setView('requests')}
-                className={`px-3 py-2 text-sm font-medium rounded-md transition-colors relative ${view === 'requests'
-                    ? 'bg-white dark:bg-gray-600 text-blue-600 dark:text-blue-400 shadow-sm'
-                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'
-                  }`}
-              >
-                📥 İstekler
-                {pendingRequests.length > 0 && (
-                   <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center">
-                     {pendingRequests.length}
-                   </span>
-                )}
-              </button>
-            )}
-          </div>
-
-          {/* Butonlar */}
-          <div className="flex space-x-2">
-            {userData?.role === 'user' || userData?.role === 'client' && (
-              <button
-                onClick={handleCreateMeetingRequest}
-                className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center space-x-2"
-              >
-                <span>📨</span>
-                <span>Toplantı İsteği</span>
-              </button>
-            )}
-            {isManagerOrAdmin && (
-              <button
-                onClick={handleCreateMeeting}
-                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center space-x-2"
-              >
-                <span>+</span>
-                <span>Yeni Toplantı</span>
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-6 px-4 sm:px-6 lg:px-8 transition-colors duration-300">
       
-      {/* İstatistik Kartları */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow dark:shadow-gray-900/50 p-4">
-          <div className="flex items-center">
-            <div className="p-2 rounded-full bg-blue-100 text-blue-600 dark:bg-blue-900/20 dark:text-blue-300">
-              <span className="text-xl">📅</span>
-            </div>
-            <div className="ml-3">
-              <p className="text-xs font-medium text-gray-600 dark:text-gray-400">Toplam Toplantı</p>
-              <p className="text-lg font-semibold text-gray-900 dark:text-white">{meetings.length}</p>
-            </div>
-          </div>
-        </div>
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow dark:shadow-gray-900/50 p-4">
-          <div className="flex items-center">
-            <div className="p-2 rounded-full bg-green-100 text-green-600 dark:bg-green-900/20 dark:text-green-300">
-              <span className="text-xl">🕒</span>
-            </div>
-            <div className="ml-3">
-              <p className="text-xs font-medium text-gray-600 dark:text-gray-400">Yaklaşan</p>
-              <p className="text-lg font-semibold text-gray-900 dark:text-white">{upcomingMeetings.length}</p>
-            </div>
-          </div>
-        </div>
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow dark:shadow-gray-900/50 p-4">
-          <div className="flex items-center">
-            <div className="p-2 rounded-full bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400">
-              <span className="text-xl">✅</span>
-            </div>
-            <div className="ml-3">
-              <p className="text-xs font-medium text-gray-600 dark:text-gray-400">Tamamlanan</p>
-              <p className="text-lg font-semibold text-gray-900 dark:text-white">{pastMeetings.length}</p>
-            </div>
-          </div>
-        </div>
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow dark:shadow-gray-900/50 p-4">
-          <div className="flex items-center">
-            <div className="p-2 rounded-full bg-purple-100 text-purple-600 dark:bg-purple-900/20 dark:text-purple-300">
-              <span className="text-xl">👥</span>
-            </div>
-            <div className="ml-3">
-              <p className="text-xs font-medium text-gray-600 dark:text-gray-400">Bu Hafta</p>
-              <p className="text-lg font-semibold text-gray-900 dark:text-white">
-                {meetings.filter(meeting => {
-                  const oneWeekAgo = new Date();
-                  oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
-                  return meeting.startTime && meeting.startTime > oneWeekAgo;
-                }).length}
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* İçerik - Takvim veya Liste Görünümü */}
-      {view === 'calendar' && (
-        <MeetingCalendar
-          meetings={meetings.map(m => ({ ...m, start: m.startTime, end: m.endTime }))}
-          onMeetingClick={handleEditMeeting}
-        />
-      )}
-      
-      {view === 'list' && (
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow dark:shadow-gray-900/50">
-          <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Toplantı Ajandası</h2>
-          </div>
-          <div className="p-6">
-            <div className="mb-8">
-              <h3 className="text-md font-semibold text-gray-900 dark:text-white mb-4">Yaklaşan Toplantılar</h3>
-              {upcomingMeetings.length > 0 ? (
-                <div className="space-y-3">
-                  {upcomingMeetings.map(meeting => (
-                    <MeetingListItem key={meeting.id} meeting={meeting} onEdit={handleEditMeeting} />
-                  ))}
-                </div>
-              ) : (<p className="text-gray-500 dark:text-gray-400 text-sm">Yaklaşan toplantı bulunmuyor</p>)}
-            </div>
-            <div>
-              <h3 className="text-md font-semibold text-gray-900 dark:text-white mb-4">Geçmiş Toplantılar</h3>
-              {pastMeetings.length > 0 ? (
-                <div className="space-y-3">
-                  {pastMeetings.map(meeting => (
-                    <MeetingListItem key={meeting.id} meeting={meeting} onEdit={handleEditMeeting} />
-                  ))}
-                </div>
-              ) : (<p className="text-gray-500 dark:text-gray-400 text-sm">Geçmiş toplantı bulunmuyor</p>)}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* YENİ: Toplantı İstekleri Görünümü */}
-      {view === 'requests' && isManagerOrAdmin && (
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow dark:shadow-gray-900/50">
-          <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Toplantı İstekleri</h2>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-              Kullanıcılardan gelen toplantı taleplerini yönetin.
+      {/* --- MODERN HEADER SECTION --- */}
+      <div className="max-w-7xl mx-auto mb-10 bg-white dark:bg-gray-800 p-8 sm:p-10 rounded-[2.5rem] shadow-sm border border-gray-100 dark:border-gray-700 animate-fade-in relative overflow-hidden">
+        <div className="absolute top-0 right-0 p-8 opacity-5 select-none pointer-events-none text-8xl font-black italic uppercase">MEETINGS</div>
+        
+        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-8 relative z-10">
+          <div className="flex-1 min-w-0">
+            <h1 className="text-4xl font-black text-gray-900 dark:text-white tracking-tight leading-tight uppercase mb-3">Toplantılarım</h1>
+            <p className="text-gray-500 dark:text-gray-400 text-lg font-medium leading-relaxed max-w-2xl">
+              Takviminizi yönetin, toplantı isteklerini değerlendirin ve ekip iletişimini buradan organize edin.
             </p>
           </div>
-          <div className="p-6">
-            {loadingRequests ? (
-               <div className="flex justify-center items-center h-48">
-                  <LoadingSpinner size="large" />
-                </div>
-            ) : meetingRequests.length === 0 ? (
-              <p className="text-gray-500 dark:text-gray-400 text-sm">Bekleyen toplantı isteği bulunmuyor.</p>
-            ) : (
-              <div className="space-y-4">
-                {meetingRequests.map(request => (
-                  <MeetingRequestItem 
-                    key={request.id} 
-                    request={request} 
-                    onApprove={handleApproveRequest}
-                    onReject={handleRejectRequest}
-                  />
-                ))}
-              </div>
-            )}
+
+          <div className="flex flex-col sm:flex-row items-center gap-4 w-full lg:w-auto shrink-0">
+            {/* View Toggles */}
+            <div className="bg-gray-100 dark:bg-gray-900/50 p-1.5 rounded-[1.5rem] flex w-full sm:w-auto">
+              <button onClick={() => setView('calendar')} className={`flex-1 sm:flex-none px-6 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all ${view === 'calendar' ? 'bg-white dark:bg-gray-700 text-blue-600 shadow-md' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400'}`}>
+                📅 Takvim
+              </button>
+              <button onClick={() => setView('list')} className={`flex-1 sm:flex-none px-6 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all ${view === 'list' ? 'bg-white dark:bg-gray-700 text-blue-600 shadow-md' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400'}`}>
+                📋 Ajanda
+              </button>
+              {isManagerOrAdmin && (
+                <button onClick={() => setView('requests')} className={`relative flex-1 sm:flex-none px-6 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all ${view === 'requests' ? 'bg-white dark:bg-gray-700 text-blue-600 shadow-md' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400'}`}>
+                  📥 İstekler
+                  {pendingRequests.length > 0 && (
+                     <span className="absolute top-1 right-1 bg-red-500 text-white text-[9px] rounded-full w-5 h-5 flex items-center justify-center shadow-sm">
+                       {pendingRequests.length}
+                     </span>
+                  )}
+                </button>
+              )}
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex w-full sm:w-auto gap-3">
+              {(userData?.role === 'user' || userData?.role === 'client') && (
+                <button onClick={handleCreateMeetingRequest} className="flex-1 sm:flex-none bg-green-600 hover:bg-green-700 text-white px-6 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl shadow-green-500/20 active:scale-95 transition-all flex items-center justify-center gap-2">
+                  <span>📨</span> İSTEK OLUŞTUR
+                </button>
+              )}
+              {isManagerOrAdmin && (
+                <button onClick={handleCreateMeeting} className="flex-1 sm:flex-none bg-blue-600 hover:bg-blue-700 text-white px-6 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl shadow-blue-500/20 active:scale-95 transition-all flex items-center justify-center gap-2">
+                  <span>➕</span> YENİ TOPLANTI
+                </button>
+              )}
+            </div>
           </div>
         </div>
-      )}
+      </div>
+      
+      {/* --- İSTATİSTİK KARTLARI --- */}
+      <div className="max-w-7xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-6 mb-10">
+        {[
+            {l: 'Toplam Toplantı', v: meetings.length, i: '📅', c: 'blue'},
+            {l: 'Yaklaşan', v: upcomingMeetings.length, i: '🕒', c: 'green'},
+            {l: 'Tamamlanan', v: pastMeetings.length, i: '✅', c: 'gray'},
+            {l: 'Bu Hafta', v: meetings.filter(m => { const d=new Date(); d.setDate(d.getDate()-7); return m.startTime && m.startTime > d; }).length, i: '👥', c: 'purple'}
+        ].map((s, idx) => (
+            <div key={idx} className="bg-white dark:bg-gray-800 p-6 rounded-[2rem] shadow-sm border border-gray-100 dark:border-gray-700 flex items-center gap-5 transform hover:scale-105 transition-transform cursor-default">
+              <div className={`w-14 h-14 rounded-2xl bg-${s.c}-50 dark:bg-${s.c}-900/20 flex items-center justify-center text-2xl`}>{s.i}</div>
+              <div>
+                <div className={`text-3xl font-black text-${s.c}-600 dark:text-${s.c}-400 leading-none`}>{s.v}</div>
+                <div className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-1">{s.l}</div>
+              </div>
+            </div>
+        ))}
+      </div>
+
+      {/* --- İÇERİK ALANI --- */}
+      <div className="max-w-7xl mx-auto animate-fade-in">
+          
+        {view === 'calendar' && (
+          <div className="bg-white dark:bg-gray-800 p-8 rounded-[2.5rem] shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
+             <MeetingCalendar meetings={meetings.map(m => ({ ...m, start: m.startTime, end: m.endTime }))} onMeetingClick={handleEditMeeting} />
+          </div>
+        )}
+        
+        {view === 'list' && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              {/* Yaklaşan */}
+              <div className="bg-white dark:bg-gray-800 rounded-[2.5rem] shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden flex flex-col h-[700px]">
+                  <div className="px-10 py-8 border-b border-gray-100 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/50 shrink-0">
+                      <h2 className="text-xl font-black text-gray-900 dark:text-white uppercase tracking-widest">Yaklaşan Toplantılar</h2>
+                  </div>
+                  <div className="p-8 overflow-y-auto custom-scrollbar flex-1 space-y-4">
+                      {upcomingMeetings.length > 0 ? (
+                          upcomingMeetings.map(meeting => <MeetingListItem key={meeting.id} meeting={meeting} onEdit={handleEditMeeting} />)
+                      ) : (
+                          <div className="h-full flex flex-col items-center justify-center text-gray-400 opacity-70">
+                              <span className="text-6xl mb-4">📭</span>
+                              <span className="font-black text-xs uppercase tracking-widest">Yaklaşan kayıt yok</span>
+                          </div>
+                      )}
+                  </div>
+              </div>
+
+              {/* Geçmiş */}
+              <div className="bg-white dark:bg-gray-800 rounded-[2.5rem] shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden flex flex-col h-[700px]">
+                  <div className="px-10 py-8 border-b border-gray-100 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/50 shrink-0">
+                      <h2 className="text-xl font-black text-gray-900 dark:text-white uppercase tracking-widest">Geçmiş Toplantılar</h2>
+                  </div>
+                  <div className="p-8 overflow-y-auto custom-scrollbar flex-1 space-y-4 opacity-80">
+                      {pastMeetings.length > 0 ? (
+                          pastMeetings.map(meeting => <MeetingListItem key={meeting.id} meeting={meeting} onEdit={handleEditMeeting} />)
+                      ) : (
+                          <div className="h-full flex flex-col items-center justify-center text-gray-400 opacity-70">
+                              <span className="text-6xl mb-4">📭</span>
+                              <span className="font-black text-xs uppercase tracking-widest">Geçmiş kayıt yok</span>
+                          </div>
+                      )}
+                  </div>
+              </div>
+          </div>
+        )}
+
+        {view === 'requests' && isManagerOrAdmin && (
+          <div className="bg-white dark:bg-gray-800 rounded-[2.5rem] shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
+            <div className="px-10 py-8 border-b border-gray-100 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/50">
+              <h2 className="text-xl font-black text-gray-900 dark:text-white uppercase tracking-widest">Gelen İstekler</h2>
+            </div>
+            <div className="p-10 bg-gray-50/30 dark:bg-gray-900/30">
+              {loadingRequests ? (
+                 <div className="flex justify-center items-center h-48"><LoadingSpinner size="large" /></div>
+              ) : meetingRequests.length === 0 ? (
+                 <div className="py-20 text-center flex flex-col items-center">
+                    <span className="text-6xl mb-4 opacity-50">📥</span>
+                    <span className="font-black text-xs text-gray-400 uppercase tracking-widest">Bekleyen istek bulunmuyor</span>
+                 </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {meetingRequests.map(request => (
+                    <MeetingRequestItem key={request.id} request={request} onApprove={handleApproveRequest} onReject={handleRejectRequest} />
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Modallar */}
-      <MeetingModal
-        meeting={selectedMeeting}
-        isOpen={showMeetingModal}
-        onClose={handleCloseModal}
-        onSave={fetchAllData}
-      />
-      <MeetingRequestModal
-        isOpen={showMeetingRequestModal}
-        onClose={handleCloseRequestModal}
-        onSave={fetchAllData}
-      />
+      <MeetingModal meeting={selectedMeeting} isOpen={showMeetingModal} onClose={handleCloseModal} onSave={fetchAllData} />
+      <MeetingRequestModal isOpen={showMeetingRequestModal} onClose={handleCloseRequestModal} onSave={fetchAllData} />
     </div>
   );
 };
 
-// DÜZELTME: EKSİK OLAN COMPONENT BURAYA EKLENDİ
+// --- CİLALANMIŞ COMPONENTLER ---
+
 const MeetingListItem = ({ meeting, onEdit }) => {
-  const startTime = meeting.startTime; // Artık bir Date objesi
+  const startTime = meeting.startTime; 
   const isPast = startTime && startTime < new Date();
 
   return (
     <div
-      className={`p-4 border rounded-lg cursor-pointer hover:shadow-md dark:hover:shadow-gray-900/70 transition-shadow ${isPast
-          ? 'bg-gray-50 dark:bg-gray-700/50 border-gray-200 dark:border-gray-600'
-          : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700'
-        }`}
+      className={`p-6 border-2 rounded-[2rem] cursor-pointer hover:shadow-xl hover:-translate-y-1 transition-all duration-300 group ${isPast ? 'bg-gray-50/80 border-gray-100 dark:bg-gray-900/40 dark:border-gray-800/50' : 'bg-white border-blue-50 dark:bg-gray-800 dark:border-gray-700'}`}
       onClick={() => onEdit(meeting)}
     >
-      <div className="flex justify-between items-start">
-        <div className="flex-1">
-          <h4 className="font-medium text-gray-900 dark:text-white">{meeting.title}</h4>
-          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{meeting.description}</p>
-          <div className="flex items-center space-x-4 mt-2 text-xs text-gray-500 dark:text-gray-500">
-            <span>🕒 {startTime?.toLocaleString('tr-TR')}</span>
-            {meeting.location && <span>📍 {meeting.location}</span>}
-            {/* API'den gelen 'participants_list' (JSON dizisi) */}
-            <span>👥 {meeting.participants?.length || 1} katılımcı</span>
-          </div>
-        </div>
-        <div className="flex items-center space-x-2">
-          <span className={`px-2 py-1 text-xs rounded-full ${isPast
-              ? 'bg-gray-100 text-gray-800 dark:bg-gray-600 dark:text-gray-300'
-              : 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-300'
-            }`}>
-            {isPast ? 'Tamamlandı' : 'Planlandı'}
+      <div className="flex justify-between items-start gap-4 mb-4">
+          <h4 className={`text-lg font-black tracking-tight flex-1 uppercase ${isPast ? 'text-gray-500' : 'text-gray-900 dark:text-white group-hover:text-blue-600 transition-colors'}`}>{meeting.title}</h4>
+          <span className={`shrink-0 px-3 py-1 text-[9px] font-black uppercase tracking-widest rounded-lg ${isPast ? 'bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-400' : 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'}`}>
+            {isPast ? 'TAMAMLANDI' : 'PLANLANDI'}
           </span>
-          <button className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 text-sm">
-            Detay
-          </button>
+      </div>
+      <p className="text-sm font-medium text-gray-500 dark:text-gray-400 line-clamp-2 mb-6">{meeting.description || 'Açıklama girilmedi.'}</p>
+      
+      <div className="flex flex-wrap items-center gap-4 pt-4 border-t border-gray-100 dark:border-gray-700/50">
+        <div className="flex items-center gap-2 text-[10px] font-black text-gray-400 uppercase tracking-widest">
+            <span className="text-base">🕒</span> {startTime?.toLocaleString('tr-TR', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' })}
+        </div>
+        {meeting.location && (
+            <div className="flex items-center gap-2 text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                <span className="text-base">📍</span> <span className="truncate max-w-[120px]">{meeting.location}</span>
+            </div>
+        )}
+        <div className="flex items-center gap-2 text-[10px] font-black text-gray-400 uppercase tracking-widest ml-auto">
+            <span className="text-base">👥</span> {meeting.participants?.length || 1} KİŞİ
         </div>
       </div>
     </div>
   );
 };
 
-// DÜZELTME: EKSİK OLAN COMPONENT BURAYA EKLENDİ
 const MeetingRequestItem = ({ request, onApprove, onReject }) => {
   const isPending = request.status === 'pending';
   
   const getStatusClass = () => {
-    if (request.status === 'approved') return 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-300';
-    if (request.status === 'rejected') return 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-300';
-    return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-300';
-  };
-  
-  const getStatusText = () => {
-    if (request.status === 'approved') return 'Onaylandı';
-    if (request.status === 'rejected') return 'Reddedildi';
-    return 'Beklemede';
+    if (request.status === 'approved') return 'bg-green-100 text-green-700 border-green-200';
+    if (request.status === 'rejected') return 'bg-red-100 text-red-700 border-red-200';
+    return 'bg-yellow-100 text-yellow-700 border-yellow-200';
   };
 
   return (
-    <div className={`p-4 border rounded-lg ${isPending ? 'bg-white dark:bg-gray-800' : 'bg-gray-50 dark:bg-gray-700/50 opacity-70'} border-gray-200 dark:border-gray-700`}>
-      <div className="flex justify-between items-start">
-        <div className="flex-1">
-          <h4 className="font-medium text-gray-900 dark:text-white">{request.title}</h4>
-          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-            <strong>Proje:</strong> {request.project_name || 'Proje Belirtilmemiş'}
-          </p>
-          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-            <strong>Talep Eden:</strong> {request.requested_by_name}
-          </p>
-          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-            <strong>Neden:</strong> {request.reason}
-          </p>
-          <div className="flex items-center space-x-4 mt-2 text-xs text-gray-500 dark:text-gray-500">
-            {/* DÜZELTME: 'preferred_date' string'ini Date'e çevir */}
-            <span>📅 <strong>İstenen Tarih:</strong> {request.preferred_date ? new Date(request.preferred_date).toLocaleDateString('tr-TR') : 'Belirtilmemiş'}</span>
-            <span>🕒 <strong>İstenen Saat:</strong> {request.preferred_time || 'Belirtilmemiş'}</span>
+    <div className={`p-8 border-2 rounded-[2rem] shadow-sm flex flex-col ${isPending ? 'bg-white border-blue-100 dark:bg-gray-800 dark:border-gray-700' : 'bg-gray-50 border-gray-100 opacity-60'}`}>
+      <div className="flex justify-between items-start mb-6">
+          <div className="flex-1 pr-4">
+              <span className={`inline-block px-3 py-1 text-[9px] font-black uppercase tracking-widest rounded-lg border-2 mb-3 ${getStatusClass()}`}>
+                  {request.status === 'approved' ? 'ONAYLANDI' : request.status === 'rejected' ? 'REDDEDİLDİ' : 'BEKLEMEDE'}
+              </span>
+              <h4 className="text-xl font-black text-gray-900 dark:text-white uppercase tracking-tight">{request.title}</h4>
           </div>
-        </div>
-        <div className="flex flex-col items-end">
-          <span className={`px-2 py-1 text-xs rounded-full ${getStatusClass()}`}>
-            {getStatusText()}
-          </span>
-          {isPending && (
-            <div className="flex space-x-2 mt-4">
-              <button 
-                onClick={() => onReject(request.request_id)} // request.id -> request.request_id
-                className="px-3 py-1 text-sm bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors"
-              >
-                Reddet
-              </button>
-              <button 
-                onClick={() => onApprove(request.request_id)} // request.id -> request.request_id
-                className="px-3 py-1 text-sm bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors"
-              >
-                Onayla
-              </button>
-            </div>
-          )}
-        </div>
       </div>
+      
+      <div className="space-y-4 mb-8 flex-1">
+          <div>
+              <span className="block text-[9px] font-black text-gray-400 uppercase tracking-widest">İlgili Proje</span>
+              <span className="block text-sm font-bold text-gray-800 dark:text-gray-200">{request.project_name || '—'}</span>
+          </div>
+          <div>
+              <span className="block text-[9px] font-black text-gray-400 uppercase tracking-widest">Talep Eden</span>
+              <span className="block text-sm font-bold text-gray-800 dark:text-gray-200">{request.requested_by_name}</span>
+          </div>
+          <div className="bg-gray-50 dark:bg-gray-900 p-4 rounded-xl border border-gray-100 dark:border-gray-700">
+              <span className="block text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Gündem / Neden</span>
+              <span className="block text-sm font-medium text-gray-700 dark:text-gray-300 italic">{request.reason || '—'}</span>
+          </div>
+      </div>
+
+      <div className="flex flex-wrap gap-4 pt-6 border-t border-gray-100 dark:border-gray-700">
+          <div className="flex items-center gap-2 text-[10px] font-black text-gray-500 uppercase tracking-widest">
+            <span className="text-lg">📅</span> {request.preferred_date ? new Date(request.preferred_date).toLocaleDateString('tr-TR') : 'BELİRTİLMEDİ'}
+          </div>
+          <div className="flex items-center gap-2 text-[10px] font-black text-gray-500 uppercase tracking-widest">
+            <span className="text-lg">🕒</span> {request.preferred_time || 'BELİRTİLMEDİ'}
+          </div>
+      </div>
+
+      {isPending && (
+        <div className="flex gap-3 mt-8">
+            <button onClick={() => onReject(request.request_id)} className="flex-1 py-4 bg-gray-100 hover:bg-red-600 hover:text-white text-gray-600 dark:bg-gray-700 dark:text-gray-300 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all">REDDET</button>
+            <button onClick={() => onApprove(request.request_id)} className="flex-1 py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-blue-500/20 active:scale-95 transition-all">ONAYLA & KUR</button>
+        </div>
+      )}
     </div>
   );
 };

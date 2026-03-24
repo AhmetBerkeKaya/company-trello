@@ -9,14 +9,10 @@ const Column = ({ column, projectId, onTaskUpdate, userRole, currentUserId, isOb
   const [isAddingTask, setIsAddingTask] = useState(false);
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [newTaskAssignee, setNewTaskAssignee] = useState('');
-  
-  // Müşteri Görünürlüğü State'i
   const [isClientVisible, setIsClientVisible] = useState(false); 
-
   const [projectMembers, setProjectMembers] = useState([]);
   const [loadingMembers, setLoadingMembers] = useState(false);
 
-  // GÖZLEMCİ KONTROLÜ: Admin/Manager olsa bile observer ise ekleyemez
   const canAddTask = (userRole === 'admin' || userRole === 'manager') && !isObserver;
   const isLocked = column.is_locked;
 
@@ -61,7 +57,6 @@ const Column = ({ column, projectId, onTaskUpdate, userRole, currentUserId, isOb
 
   const handleDeleteColumn = async () => {
     if (!window.confirm(`"${column.title}" sütununu ve içindeki tüm görevleri silmek istediğinize emin misiniz?`)) return;
-
     try {
       await api.delete(`/columns/${column.id}`);
       onTaskUpdate(); 
@@ -73,42 +68,28 @@ const Column = ({ column, projectId, onTaskUpdate, userRole, currentUserId, isOb
   return (
     <div className="w-full flex flex-col h-full">
       {/* HEADER KISMI */}
-      <div className={`flex justify-between items-center mb-3 p-3 rounded-t-lg shadow-sm border-b-2 
+      <div className={`flex justify-between items-center mb-6 p-6 rounded-[2rem] shadow-sm border-2 
         ${isLocked 
-          ? 'bg-blue-50 dark:bg-blue-900/40 border-blue-200 dark:border-blue-800' 
-          : 'bg-white dark:bg-gray-700 border-gray-200 dark:border-gray-600'
+          ? 'bg-blue-50/80 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800' 
+          : 'bg-white dark:bg-gray-800 border-transparent'
         }`}
       >
-        <div className="flex items-center gap-2">
-          {isLocked && <span className="text-blue-500 text-xs">🔒</span>}
-          <h3 className={`font-bold text-sm md:text-base ${isLocked ? 'text-blue-700 dark:text-blue-100' : 'text-gray-700 dark:text-gray-200'}`}>
+        <div className="flex items-center gap-3">
+          {isLocked && <span className="text-xl">🔒</span>}
+          <h3 className={`font-black text-sm uppercase tracking-widest ${isLocked ? 'text-blue-800 dark:text-blue-300' : 'text-gray-900 dark:text-white'}`}>
             {column.title} 
-            <span className="ml-2 text-xs font-normal opacity-70">({column.tasks.length})</span>
+            <span className="ml-3 px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-500 rounded-lg text-[10px]">{column.tasks.length}</span>
           </h3>
         </div>
 
-        <div className="flex items-center gap-1">
-           {/* SİLME BUTONU: Kilitli değilse, Yetkili ise VE Gözlemci DEĞİLSE görünür */}
+        <div className="flex items-center gap-2">
            {!isLocked && (userRole === 'admin' || userRole === 'manager') && !isObserver && (
-            <button 
-              onClick={handleDeleteColumn}
-              className="text-gray-400 hover:text-red-500 p-1 transition-colors"
-              title="Sütunu Sil"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-              </svg>
+            <button onClick={handleDeleteColumn} className="w-8 h-8 flex items-center justify-center rounded-xl bg-gray-50 dark:bg-gray-700 text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors" title="Sütunu Sil">
+              ✕
             </button>
           )}
-
-          {/* EKLEME BUTONU: Gözlemciye gizli */}
           {canAddTask && (
-            <button
-              onClick={() => setIsAddingTask(true)}
-              className={`text-lg p-1 w-6 h-6 flex items-center justify-center rounded hover:bg-black/5 
-                ${isLocked ? 'text-blue-600 dark:text-blue-300' : 'text-gray-500 dark:text-gray-400'}`}
-              title="Yeni görev ekle"
-            >
+            <button onClick={() => setIsAddingTask(true)} className={`w-8 h-8 flex items-center justify-center rounded-xl font-black text-lg transition-colors ${isLocked ? 'bg-blue-100 text-blue-600 hover:bg-blue-200' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200'}`} title="Yeni görev ekle">
               +
             </button>
           )}
@@ -117,84 +98,44 @@ const Column = ({ column, projectId, onTaskUpdate, userRole, currentUserId, isOb
 
       {/* YENİ GÖREV FORMU */}
       {isAddingTask && canAddTask && (
-        <div className="mb-3 mx-1 p-3 bg-white dark:bg-gray-700 rounded-lg shadow-lg border border-blue-200 dark:border-blue-900 z-10">
-          <input
-            type="text"
-            value={newTaskTitle}
-            onChange={(e) => setNewTaskTitle(e.target.value)}
-            placeholder="Görev başlığı..."
-            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-600 dark:text-white"
-            autoFocus
+        <div className="mb-4 mx-2 p-6 bg-white dark:bg-gray-800 rounded-[2rem] shadow-2xl border-2 border-blue-200 dark:border-blue-800 relative z-10 animate-slide-in">
+          <input type="text" value={newTaskTitle} onChange={(e) => setNewTaskTitle(e.target.value)} placeholder="Görev başlığı..." autoFocus
+            className="w-full px-5 py-4 bg-gray-50 dark:bg-gray-900 border-2 border-gray-100 dark:border-gray-700 rounded-2xl focus:border-blue-500 outline-none transition-all font-bold text-sm mb-4 dark:text-white"
           />
           {(userRole === 'admin' || userRole === 'manager') && (
-            <div className="mb-2 space-y-2">
-              <select
-                value={newTaskAssignee}
-                onChange={(e) => setNewTaskAssignee(e.target.value)}
-                className="w-full px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-600 dark:text-white"
+            <div className="mb-6 space-y-4">
+              <select value={newTaskAssignee} onChange={(e) => setNewTaskAssignee(e.target.value)}
+                className="w-full px-5 py-4 bg-gray-50 dark:bg-gray-900 border-2 border-gray-100 dark:border-gray-700 rounded-2xl focus:border-blue-500 outline-none transition-all font-bold text-xs uppercase tracking-wider dark:text-white appearance-none"
               >
-                <option value="">Atanmadı (Bana Ata)</option>
-                {loadingMembers ? (
-                  <option value="">Yükleniyor...</option>
-                ) : (
-                  projectMembers.map(member => (
-                    <option key={member.user_id} value={member.user_id}>
-                      {member.name} ({member.role})
-                    </option>
-                  ))
-                )}
+                <option value="">👤 Atanmadı (Bana Ata)</option>
+                {loadingMembers ? <option value="">Yükleniyor...</option> : projectMembers.map(member => (
+                  <option key={member.user_id} value={member.user_id}>{member.name.toUpperCase()} ({member.role})</option>
+                ))}
               </select>
 
-              <label className="flex items-center space-x-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-600 p-1 rounded">
-                <input 
-                    type="checkbox"
-                    checked={isClientVisible}
-                    onChange={(e) => setIsClientVisible(e.target.checked)}
-                    className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
-                />
-                <span className="flex items-center">
+              <label className="flex items-center space-x-3 p-4 bg-purple-50 dark:bg-purple-900/10 border border-purple-100 dark:border-purple-800/50 rounded-2xl cursor-pointer group">
+                <input type="checkbox" checked={isClientVisible} onChange={(e) => setIsClientVisible(e.target.checked)} className="w-5 h-5 text-purple-600 rounded-md focus:ring-purple-500" />
+                <span className="font-black text-[10px] text-purple-800 dark:text-purple-300 uppercase tracking-widest group-hover:text-purple-600 transition-colors">
                     👁️ Müşteriye Göster
                 </span>
               </label>
             </div>
           )}
-          <div className="flex space-x-2 mt-2">
-            <button
-              onClick={handleAddTask}
-              className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-1 px-3 rounded text-sm"
-            >
-              Ekle
-            </button>
-            <button
-              onClick={() => {
-                setIsAddingTask(false);
-                setNewTaskAssignee('');
-                setIsClientVisible(false);
-              }}
-              className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 py-1 px-3 rounded text-sm"
-            >
-              İptal
-            </button>
+          <div className="flex gap-3">
+            <button onClick={handleAddTask} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-blue-500/20 active:scale-95 transition-all">Ekle</button>
+            <button onClick={() => { setIsAddingTask(false); setNewTaskAssignee(''); setIsClientVisible(false); }} className="flex-1 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-300 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all">İptal</button>
           </div>
         </div>
       )}
 
       {/* GÖREV LİSTESİ */}
-      <div className="flex-1 space-y-2 overflow-y-auto px-1 min-h-[50px]">
+      <div className="flex-1 space-y-4 overflow-y-auto px-2 pb-6 min-h-[100px] custom-scrollbar">
         {column.tasks.map(task => (
-          <DraggableTask
-            key={task.id}
-            task={task}
-            onUpdate={onTaskUpdate}
-            userRole={userRole}
-            currentUserId={currentUserId}
-            isObserver={isObserver} // Gözlemci bilgisini karta da iletiyoruz
-          />
+          <DraggableTask key={task.id} task={task} onUpdate={onTaskUpdate} userRole={userRole} currentUserId={currentUserId} isObserver={isObserver} />
         ))}
-
         {column.tasks.length === 0 && !isAddingTask && (
-          <div className="h-full flex flex-col items-center justify-center text-gray-400 dark:text-gray-600 text-xs py-4 opacity-50">
-            <span>Boş</span>
+          <div className="h-32 flex flex-col items-center justify-center text-gray-400 dark:text-gray-600 border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-[2rem] mx-2">
+            <span className="font-black text-[10px] uppercase tracking-widest">Sütun Boş</span>
           </div>
         )}
       </div>

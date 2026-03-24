@@ -16,29 +16,40 @@ const ForgeViewer = ({ urn, tasks, projectId, planFileId, onTaskCreated }) => {
   const [tempPin, setTempPin] = useState(null);
   const [newTaskTitle, setNewTaskTitle] = useState('');
 
+  // --- KRİTİK DÜZELTME: REACT CLOSURE TRAP ÇÖZÜMÜ ---
+  // Event listener'ların içindeki state'lerin eski kalmasını engellemek için Ref kullanıyoruz.
+  const tasksRef = useRef(tasks);
+  const planFileIdRef = useRef(planFileId);
+  const isAddingPinRef = useRef(isAddingPin);
+
+  // State'ler her değiştiğinde Ref'leri güncelliyoruz ki 3D motor her zaman en güncel veriyi görsün
+  useEffect(() => { 
+      tasksRef.current = tasks; 
+      planFileIdRef.current = planFileId;
+      updatePinPositions(); // Veri değiştiği an ekranı tazele
+  }, [tasks, planFileId]);
+
+  useEffect(() => { 
+      isAddingPinRef.current = isAddingPin; 
+  }, [isAddingPin]);
+
   const getToken = async (callback) => {
     try { const res = await api.get('/aps/token'); callback(res.data.access_token, res.data.expires_in); } catch (err) { console.error(err); }
   };
 
-  // --- KRİTİK DÜZELTME BURADA ---
   const updatePinPositions = () => {
       const viewer = viewerRef.current;
-      // window.THREE kontrolü ekledik, hata vermesin diye
       if (!viewer || !window.THREE) return;
 
-      const currentTasks = tasks.filter(t => t.plan_file_id === planFileId);
+      // DİKKAT: Artık doğrudan tasks değil, tasksRef.current kullanılıyor
+      const currentTasks = tasksRef.current.filter(t => t.plan_file_id === planFileIdRef.current);
       
       const newOverlays = currentTasks.map(task => {
           const z = task.pin_3d_data?.z || task.pin_z || 0;
-          
-          // DÜZELTME: window.THREE.Vector3 kullanıyoruz
           const vec = new window.THREE.Vector3(task.pin_x, task.pin_y, z);
-          
-          // 3D -> 2D Çevrimi
           const pos = viewer.worldToClient(vec);
 
-          // Görünürlük kontrolü (Kameranın arkasında kalanları gizle)
-          // navigation.isPointVisible bazen hata verebilir, try-catch bloğuna alalım
+          // Kameranın arkasında kalan pinleri gizlemek için
           let isVisible = true;
           try {
              isVisible = viewer.navigation.isPointVisible(vec);
@@ -66,13 +77,14 @@ const ForgeViewer = ({ urn, tasks, projectId, planFileId, onTaskCreated }) => {
       viewerRef.current = viewer;
       viewer.setTheme('light-theme');
 
-      // EVENTS: Kamera hareket ettiğinde pinleri güncelle
+      // Kamera hareket ettiğinde veya obje yüklendiğinde pinleri yerine oturt
       viewer.addEventListener(Autodesk.Viewing.CAMERA_CHANGE_EVENT, updatePinPositions);
       viewer.addEventListener(Autodesk.Viewing.GEOMETRY_LOADED_EVENT, updatePinPositions);
       
-      // Tıklama (Pin Ekleme)
+      // Pin Ekleme (Tıklama) Olayı
       viewer.container.addEventListener('click', (event) => {
-          if (!isAddingPin) return; 
+          // DİKKAT: Artık isAddingPin değil, isAddingPinRef.current (Tuzağı bozduk)
+          if (!isAddingPinRef.current) return; 
 
           const rect = viewer.container.getBoundingClientRect();
           const x = event.clientX - rect.left;
@@ -109,9 +121,6 @@ const ForgeViewer = ({ urn, tasks, projectId, planFileId, onTaskCreated }) => {
     };
   }, [urn]);
 
-  // Task listesi değişince pozisyonları tekrar hesapla
-  useEffect(() => { updatePinPositions(); }, [tasks]);
-
   const saveTask = async () => {
     if (!newTaskTitle.trim() || !tempPin) return;
     try {
@@ -135,17 +144,16 @@ const ForgeViewer = ({ urn, tasks, projectId, planFileId, onTaskCreated }) => {
           {overlayPins.map(pin => (
               pin.visible && (
                 <TaskPin 
-                    key={pin.task_id}
+                    key={pin.task_id || pin.id}
                     task={pin}
                     style={{
                         position: 'absolute',
                         left: pin.screenX,
                         top: pin.screenY,
-                        transform: 'translate(-50%, -50%)', // Tam ortaya hizala
+                        transform: 'translate(-50%, -50%)', 
                         pointerEvents: 'auto'
                     }}
                     onClick={(t) => {
-                        console.log("Pin tıklandı, kamera restore ediliyor...");
                         if(viewerRef.current && t.pin_3d_data?.viewerState) {
                              viewerRef.current.restoreState(t.pin_3d_data.viewerState);
                         }

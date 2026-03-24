@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import api from '../../api/axios'; // YENİ
+import api from '../../api/axios';
 import LoadingSpinner from '../UI/LoadingSpinner';
 
 const MeetingModal = ({ meeting, isOpen, onClose, onSave }) => {
@@ -56,13 +56,12 @@ const MeetingModal = ({ meeting, isOpen, onClose, onSave }) => {
     };
   }, [isOpen, onClose]);
 
-  // YENİ: Veri çekme ve state ayarları
+  // Veri çekme ve state ayarları
   useEffect(() => {
     if (isOpen) {
-      fetchModalData(); // Verileri API'den çek
+      fetchModalData();
 
       if (isEditMode) {
-        // Düzenleme modu: Formu 'meeting' prop'u ile doldur
         const startTime = meeting.startTime ? new Date(meeting.startTime) : null;
         const endTime = meeting.endTime ? new Date(meeting.endTime) : null;
         
@@ -72,15 +71,13 @@ const MeetingModal = ({ meeting, isOpen, onClose, onSave }) => {
           startTime: startTime ? formatDateTimeForInput(startTime) : '',
           endTime: endTime ? formatDateTimeForInput(endTime) : '',
           location: meeting.location || '',
-          meetingLink: meeting.meeting_link || '', // Veritabanı adı
-          projectId: meeting.project_id || '',   // Veritabanı adı
+          meetingLink: meeting.meeting_link || '',
+          projectId: meeting.project_id || '',
           agenda: meeting.agenda?.length > 0 ? meeting.agenda : ['']
         });
         
-        // API'den gelen 'participants_list' (kullanıcı objeleri)
         setSelectedUsers(meeting.participants?.map(p => p.user_id) || []); 
       } else {
-        // Yeni mod: Formu sıfırla ve organizatörü ekle
         setFormData({
           title: '',
           description: '',
@@ -102,17 +99,15 @@ const MeetingModal = ({ meeting, isOpen, onClose, onSave }) => {
     return date.toISOString().slice(0, 16);
   };
 
-  // YENİ: fetchModalData (API'den)
   const fetchModalData = async () => {
     try {
-      // Projelerim (GET /api/projects) ve Tüm Kullanıcılar (GET /api/users)
       const [projectsRes, usersRes] = await Promise.all([
         api.get('/projects'), 
         api.get('/users')    
       ]);
       
       setProjects(projectsRes.data);
-      setProjectMembers(usersRes.data); // Tüm kullanıcıları 'members' state'ine ata
+      setProjectMembers(usersRes.data);
 
     } catch (error) {
       console.error('Proje ve üye getirme hatası:', error);
@@ -124,24 +119,21 @@ const MeetingModal = ({ meeting, isOpen, onClose, onSave }) => {
     member.name?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  // Form input'larını handle et
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: value
-    }));
+    setFormData(prev => ({ ...prev, [name]: value }));
   };
 
-  // Gündem maddesi fonksiyonları
   const handleAgendaChange = (index, value) => {
     const newAgenda = [...formData.agenda];
     newAgenda[index] = value;
     setFormData(prev => ({ ...prev, agenda: newAgenda }));
   };
+  
   const addAgendaItem = () => {
     setFormData(prev => ({ ...prev, agenda: [...prev.agenda, ''] }));
   };
+  
   const removeAgendaItem = (index) => {
     if (formData.agenda.length > 1) {
       const newAgenda = formData.agenda.filter((_, i) => i !== index);
@@ -149,12 +141,10 @@ const MeetingModal = ({ meeting, isOpen, onClose, onSave }) => {
     }
   };
 
-  // Katılımcı seçimi
   const handleUserSelection = (userId) => {
     setSelectedUsers(prev => {
       const isSelected = prev.includes(userId);
       if (isSelected) {
-        // Organizatörü (kendini) kaldıramazsın
         if (userId === userData.user_id) return prev;
         return prev.filter(id => id !== userId);
       } else {
@@ -165,10 +155,10 @@ const MeetingModal = ({ meeting, isOpen, onClose, onSave }) => {
 
   const toggleSelectAll = () => {
     if (selectedUsers.length === filteredMembers.length) {
-      setSelectedUsers([userData.user_id]); // Sadece organizatörü bırak
+      setSelectedUsers([userData.user_id]); 
     } else {
       const allUserIds = filteredMembers.map(member => member.user_id);
-      setSelectedUsers([...new Set([...allUserIds, userData.user_id])]); // Tümünü + organizatörü ekle
+      setSelectedUsers([...new Set([...allUserIds, userData.user_id])]); 
     }
   };
 
@@ -176,13 +166,9 @@ const MeetingModal = ({ meeting, isOpen, onClose, onSave }) => {
     const randomId = Math.random().toString(36).substring(2, 15);
     const baseUrl = 'https://meet.google.com/';
     const meetingCode = `${randomId.slice(0, 3)}-${randomId.slice(3, 7)}-${randomId.slice(7, 11)}`;
-    setFormData(prev => ({
-      ...prev,
-      meetingLink: `${baseUrl}${meetingCode}`
-    }));
+    setFormData(prev => ({ ...prev, meetingLink: `${baseUrl}${meetingCode}` }));
   };
 
-  // YENİ: handleSubmit (API'ye bağlandı)
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
@@ -218,19 +204,17 @@ const MeetingModal = ({ meeting, isOpen, onClose, onSave }) => {
         location: formData.location,
         meetingLink: formData.meetingLink,
         projectId: formData.projectId || null,
-        participants: [...new Set([...selectedUsers, userData.user_id])], // Katılımcı ID dizisi
+        participants: [...new Set([...selectedUsers, userData.user_id])], 
         agenda: formData.agenda.filter(item => item.trim() !== '')
       };
 
       if (isEditMode) {
-        // DÜZENLEME MODU (API)
         await api.put(`/meetings/${meeting.meeting_id}`, meetingData);
       } else {
-        // YENİ OLUŞTURMA MODU (API)
         await api.post('/meetings', meetingData);
       }
 
-      onSave(); // Toplantı listesini yenile
+      onSave(); 
       onClose();
 
     } catch (error) {
@@ -244,286 +228,236 @@ const MeetingModal = ({ meeting, isOpen, onClose, onSave }) => {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+    <div className="fixed inset-0 bg-gray-900/80 backdrop-blur-md flex items-center justify-center z-[200] p-4 animate-fade-in">
       <div
         ref={modalRef}
-        className="bg-white dark:bg-gray-800 rounded-lg w-full max-w-2xl max-h-[90vh] overflow-hidden"
+        className="bg-white dark:bg-gray-800 rounded-[3rem] shadow-2xl w-full max-w-3xl flex flex-col border border-gray-100 dark:border-gray-700 animate-slide-in overflow-hidden max-h-[90vh]"
       >
-        <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
-          <h2 className="text-xl font-bold text-gray-900 dark:text-white">
-            {isEditMode ? 'Toplantıyı Düzenle' : 'Yeni Toplantı Oluştur'}
+        {/* HEADER */}
+        <div className="px-10 py-8 border-b border-gray-100 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/50 flex justify-between items-center shrink-0">
+          <h2 className="text-xl font-black text-gray-900 dark:text-white uppercase tracking-widest">
+            {isEditMode ? 'Toplantıyı Düzenle' : 'Yeni Toplantı Planla'}
           </h2>
           <button
             onClick={onClose}
-            className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300 text-2xl font-bold"
+            className="w-10 h-10 flex items-center justify-center rounded-full bg-white dark:bg-gray-700 shadow-sm text-gray-400 hover:text-red-500 transition-colors"
             aria-label="Kapat"
           >
-            ×
+            ✕
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 overflow-y-auto max-h-[70vh]">
-          {error && (
-            <div className="mb-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
-              {error}
-            </div>
-          )}
-
-          <div className="space-y-6">
-            {/* Başlık */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Toplantı Başlığı *
-              </label>
-              <input
-                type="text"
-                name="title"
-                value={formData.title}
-                onChange={handleInputChange}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                placeholder="Toplantı başlığını girin"
-                required
-              />
-            </div>
-
-            {/* Açıklama */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Açıklama
-              </label>
-              <textarea
-                name="description"
-                value={formData.description}
-                onChange={handleInputChange}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                placeholder="Toplantı açıklaması"
-                rows="3"
-              />
-            </div>
-
-            {/* Proje Seçimi (Veritabanı sütun adları güncellendi) */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Proje {(userData.role === 'manager' || userData.role === 'admin') && '*'}
-              </label>
-              <select
-                name="projectId"
-                value={formData.projectId}
-                onChange={handleInputChange}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                required={userData.role === 'manager' || userData.role === 'admin'}
-              >
-                <option value="">Proje Seçin</option>
-                {projects.map(project => (
-                  <option key={project.project_id} value={project.project_id}>
-                    {project.name}
-                  </option>
-                ))}
-              </select>
-              <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                {userData.role === 'user' ? (
-                  'Toplantıyı bir projeye bağlayabilirsiniz (opsiyonel)'
-                ) : (
-                  <span className="text-orange-600 dark:text-orange-400 font-medium">
-                    • Proje yöneticisi ve adminler için proje seçimi zorunludur
-                  </span>
-                )}
+        {/* FORM */}
+        <form onSubmit={handleSubmit} className="flex flex-col flex-1 overflow-hidden">
+          <div className="p-10 overflow-y-auto custom-scrollbar flex-1 space-y-8">
+            
+            {error && (
+              <div className="p-5 rounded-[1.5rem] bg-red-50 text-red-700 border-2 border-red-200 font-bold text-sm">
+                {error}
               </div>
-            </div>
+            )}
 
-            {/* Zaman */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Başlangıç Zamanı *
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              {/* Başlık */}
+              <div className="md:col-span-2">
+                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-3 ml-1">
+                  Toplantı Başlığı *
                 </label>
+                <input
+                  type="text"
+                  name="title"
+                  value={formData.title}
+                  onChange={handleInputChange}
+                  className="w-full px-6 py-4 bg-gray-50 dark:bg-gray-900 border-2 border-gray-100 dark:border-gray-700 rounded-2xl focus:border-blue-500 outline-none transition-all font-bold text-sm dark:text-white"
+                  placeholder="Örn: Proje Kick-off Toplantısı"
+                  required
+                />
+              </div>
+
+              {/* Proje Seçimi */}
+              <div className="md:col-span-2">
+                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-3 ml-1">
+                  İlgili Proje {(userData.role === 'manager' || userData.role === 'admin') && '*'}
+                </label>
+                <div className="relative">
+                  <select
+                    name="projectId"
+                    value={formData.projectId}
+                    onChange={handleInputChange}
+                    className="w-full px-6 py-4 bg-gray-50 dark:bg-gray-900 border-2 border-gray-100 dark:border-gray-700 rounded-2xl focus:border-blue-500 outline-none transition-all font-bold text-sm dark:text-white appearance-none"
+                    required={userData.role === 'manager' || userData.role === 'admin'}
+                  >
+                    <option value="">Proje Bağımsız (Genel Toplantı)</option>
+                    {projects.map(project => (
+                      <option key={project.project_id} value={project.project_id}>
+                        {project.name}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="pointer-events-none absolute inset-y-0 right-5 flex items-center text-gray-400">▼</div>
+                </div>
+                <div className="text-[10px] font-bold text-gray-500 dark:text-gray-400 mt-2 ml-1 uppercase tracking-widest">
+                  {userData.role === 'user' ? 'Toplantıyı bir projeye bağlayabilirsiniz (Opsiyonel)' : <span className="text-orange-500">Yöneticiler için proje seçimi zorunludur.</span>}
+                </div>
+              </div>
+
+              {/* Zamanlar */}
+              <div>
+                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-3 ml-1">Başlangıç *</label>
                 <input
                   type="datetime-local"
                   name="startTime"
                   value={formData.startTime}
                   onChange={handleInputChange}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  className="w-full px-6 py-4 bg-gray-50 dark:bg-gray-900 border-2 border-gray-100 dark:border-gray-700 rounded-2xl focus:border-blue-500 outline-none transition-all font-bold text-sm dark:text-white"
                   required
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Bitiş Zamanı *
-                </label>
+                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-3 ml-1">Bitiş *</label>
                 <input
                   type="datetime-local"
                   name="endTime"
                   value={formData.endTime}
                   onChange={handleInputChange}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  className="w-full px-6 py-4 bg-gray-50 dark:bg-gray-900 border-2 border-gray-100 dark:border-gray-700 rounded-2xl focus:border-blue-500 outline-none transition-all font-bold text-sm dark:text-white"
                   required
                 />
               </div>
-            </div>
 
-            {/* Lokasyon */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Fiziksel Lokasyon
-              </label>
-              <input
-                type="text"
-                name="location"
-                value={formData.location}
-                onChange={handleInputChange}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                placeholder="Ofis, Toplantı Odası, vs."
-              />
-            </div>
-
-            {/* Toplantı Linki */}
-            <div>
-              <div className="flex justify-between items-center mb-1">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Online Toplantı Linki
-                </label>
-                <button
-                  type="button"
-                  onClick={generateMeetingLink}
-                  className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
-                >
-                  Link Oluştur
-                </button>
-              </div>
-              <input
-                type="url"
-                name="meetingLink"
-                value={formData.meetingLink}
-                onChange={handleInputChange}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                placeholder="https://meet.google.com/xxx-xxxx-xxx"
-              />
-            </div>
-
-            {/* Katılımcılar (Veritabanı sütun adları güncellendi) */}
-            <div>
-              <div className="flex justify-between items-center mb-2">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Katılımcılar
-                </label>
-                <button
-                  type="button"
-                  onClick={toggleSelectAll}
-                  className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
-                >
-                  {selectedUsers.length === filteredMembers.length ? 'Tümünü Kaldır' : 'Tümünü Seç'}
-                </button>
-              </div>
-
-              {/* Arama */}
-              <div className="mb-2">
+              {/* Lokasyon */}
+              <div>
+                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-3 ml-1">Fiziksel Lokasyon</label>
                 <input
                   type="text"
-                  placeholder="İsim, departman veya rol ara..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  name="location"
+                  value={formData.location}
+                  onChange={handleInputChange}
+                  className="w-full px-6 py-4 bg-gray-50 dark:bg-gray-900 border-2 border-gray-100 dark:border-gray-700 rounded-2xl focus:border-blue-500 outline-none transition-all font-bold text-sm dark:text-white"
+                  placeholder="Örn: 2. Kat Toplantı Odası"
                 />
               </div>
 
-              <div className="border border-gray-300 dark:border-gray-600 rounded-lg max-h-48 overflow-y-auto p-2 bg-white dark:bg-gray-700">
-                {filteredMembers.map(member => (
-                  <div key={member.user_id} className="flex items-center p-2 hover:bg-gray-50 dark:hover:bg-gray-600 rounded">
-                    <input
-                      type="checkbox"
-                      id={`user-${member.user_id}`}
-                      checked={selectedUsers.includes(member.user_id)}
-                      onChange={() => handleUserSelection(member.user_id)}
-                      className="h-4 w-4 text-blue-600 rounded focus:ring-blue-500"
-                      disabled={member.user_id === userData.user_id} // Organizatör (kendisi) her zaman seçilidir
-                    />
-                    <label
-                      htmlFor={`user-${member.user_id}`}
-                      className="ml-3 flex-1 flex items-center justify-between cursor-pointer"
-                    >
-                      <div className="flex items-center space-x-2">
-                        <span className="text-sm font-medium text-gray-900 dark:text-white">
-                          {member.name}
-                          {member.user_id === userData.user_id && (
-                            <span className="ml-1 text-xs text-blue-600 dark:text-blue-400">(Siz)</span>
-                          )}
-                        </span>
-                        <span className="text-xs text-gray-500 dark:text-gray-400 capitalize">
-                          {member.role}
-                        </span>
-                      </div>
-                      <span className="text-xs text-gray-400 dark:text-gray-500 capitalize">
-                        {member.department}
-                      </span>
-                    </label>
-                  </div>
-                ))}
-                {filteredMembers.length === 0 && (
-                  <div className="text-center text-sm text-gray-500 dark:text-gray-400 py-4">
-                    {searchTerm ? 'Aranan kriterlere uygun katılımcı bulunamadı' : 'Katılımcı bulunamadı'}
-                  </div>
-                )}
+              {/* Online Link */}
+              <div>
+                <div className="flex justify-between items-center mb-3 ml-1 pr-1">
+                  <label className="block text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Online Bağlantı</label>
+                  <button type="button" onClick={generateMeetingLink} className="text-[10px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest hover:text-blue-800 transition-colors">
+                    OTOMATİK OLUŞTUR ⚡
+                  </button>
+                </div>
+                <input
+                  type="url"
+                  name="meetingLink"
+                  value={formData.meetingLink}
+                  onChange={handleInputChange}
+                  className="w-full px-6 py-4 bg-gray-50 dark:bg-gray-900 border-2 border-gray-100 dark:border-gray-700 rounded-2xl focus:border-blue-500 outline-none transition-all font-bold text-sm dark:text-white"
+                  placeholder="https://meet.google.com/..."
+                />
               </div>
-              <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                {selectedUsers.length} kişi seçildi
-              </div>
-            </div>
 
-            {/* Gündem */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Gündem Maddeleri
-              </label>
-              <div className="space-y-2">
-                {formData.agenda.map((item, index) => (
-                  <div key={index} className="flex space-x-2">
-                    <input
-                      type="text"
-                      value={item}
-                      onChange={(e) => handleAgendaChange(index, e.target.value)}
-                      className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                      placeholder={`Gündem maddesi ${index + 1}`}
-                    />
-                    {formData.agenda.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => removeAgendaItem(index)}
-                        className="px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-                        aria-label="Gündem maddesini sil"
-                      >
-                        Sil
-                      </button>
+              {/* Katılımcılar */}
+              <div className="md:col-span-2">
+                <div className="flex justify-between items-center mb-3 ml-1 pr-1">
+                  <label className="block text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Davetliler ({selectedUsers.length})</label>
+                  <button type="button" onClick={toggleSelectAll} className="text-[10px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest hover:text-blue-800 transition-colors">
+                    {selectedUsers.length === filteredMembers.length ? 'TÜMÜNÜ KALDIR' : 'TÜMÜNÜ SEÇ'}
+                  </button>
+                </div>
+                <div className="bg-gray-50 dark:bg-gray-900/50 border-2 border-gray-100 dark:border-gray-700 rounded-[2rem] p-4">
+                  <input
+                    type="text"
+                    placeholder="İsim veya departman ara..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="w-full px-5 py-3 mb-4 bg-white dark:bg-gray-800 border-2 border-gray-100 dark:border-gray-700 rounded-xl focus:border-blue-500 outline-none font-bold text-sm dark:text-white"
+                  />
+                  <div className="max-h-48 overflow-y-auto custom-scrollbar space-y-2 pr-2">
+                    {filteredMembers.map(member => (
+                      <label key={member.user_id} className={`flex items-center justify-between p-4 rounded-xl cursor-pointer transition-all border-2 ${selectedUsers.includes(member.user_id) ? 'bg-blue-50 border-blue-200 dark:bg-blue-900/20 dark:border-blue-800' : 'bg-white border-transparent dark:bg-gray-800 hover:border-gray-200 dark:hover:border-gray-600'}`}>
+                        <div className="flex items-center gap-4">
+                          <input
+                            type="checkbox"
+                            checked={selectedUsers.includes(member.user_id)}
+                            onChange={() => handleUserSelection(member.user_id)}
+                            disabled={member.user_id === userData.user_id}
+                            className="w-5 h-5 text-blue-600 rounded-md focus:ring-blue-500 border-gray-300"
+                          />
+                          <div>
+                            <p className="font-black text-sm text-gray-900 dark:text-white">
+                              {member.name} {member.user_id === userData.user_id && <span className="text-blue-500 ml-1">(Siz)</span>}
+                            </p>
+                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{member.department || 'Departman Yok'} • {member.role}</p>
+                          </div>
+                        </div>
+                      </label>
+                    ))}
+                    {filteredMembers.length === 0 && (
+                      <div className="text-center text-[10px] font-black text-gray-400 uppercase tracking-widest py-6">Kayıt bulunamadı.</div>
                     )}
                   </div>
-                ))}
-                <button
-                  type="button"
-                  onClick={addAgendaItem}
-                  className="px-4 py-2 bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-500 transition-colors text-sm"
-                >
-                  + Gündem Maddesi Ekle
-                </button>
+                </div>
               </div>
+
+              {/* Açıklama */}
+              <div className="md:col-span-2">
+                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-3 ml-1">Toplantı Notu / Açıklama</label>
+                <textarea
+                  name="description"
+                  value={formData.description}
+                  onChange={handleInputChange}
+                  className="w-full px-6 py-4 bg-gray-50 dark:bg-gray-900 border-2 border-gray-100 dark:border-gray-700 rounded-2xl focus:border-blue-500 outline-none transition-all font-medium text-sm dark:text-white resize-none"
+                  placeholder="Genel bir açıklama yazın..."
+                  rows="3"
+                />
+              </div>
+
+              {/* Gündem */}
+              <div className="md:col-span-2">
+                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-3 ml-1">Gündem Maddeleri</label>
+                <div className="space-y-3">
+                  {formData.agenda.map((item, index) => (
+                    <div key={index} className="flex gap-3">
+                      <div className="w-12 flex items-center justify-center bg-gray-100 dark:bg-gray-800 rounded-2xl font-black text-gray-400 border-2 border-gray-100 dark:border-gray-700">{index + 1}</div>
+                      <input
+                        type="text"
+                        value={item}
+                        onChange={(e) => handleAgendaChange(index, e.target.value)}
+                        className="flex-1 px-6 py-4 bg-gray-50 dark:bg-gray-900 border-2 border-gray-100 dark:border-gray-700 rounded-2xl focus:border-blue-500 outline-none transition-all font-bold text-sm dark:text-white"
+                        placeholder="Konu başlığı..."
+                      />
+                      {formData.agenda.length > 1 && (
+                        <button type="button" onClick={() => removeAgendaItem(index)} className="px-5 bg-red-100 text-red-600 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 rounded-2xl font-black transition-colors" title="Sil">
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  <button type="button" onClick={addAgendaItem} className="w-full py-4 mt-2 bg-gray-50 hover:bg-gray-100 dark:bg-gray-800/50 dark:hover:bg-gray-800 border-2 border-dashed border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all">
+                    + YENİ GÜNDEM MADDESİ EKLE
+                  </button>
+                </div>
+              </div>
+
             </div>
           </div>
 
-          {/* Footer */}
-          <div className="flex justify-end space-x-3 mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
+          {/* FOOTER */}
+          <div className="px-10 py-6 border-t border-gray-100 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/50 flex justify-end gap-4 shrink-0">
             <button
               type="button"
               onClick={onClose}
               disabled={loading}
-              className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-300 font-medium disabled:opacity-50 transition-colors"
+              className="px-8 py-4 bg-white dark:bg-gray-700 text-gray-500 dark:text-gray-300 rounded-2xl border-2 border-gray-100 dark:border-gray-600 font-black text-[10px] uppercase tracking-widest hover:bg-gray-50 transition-all"
             >
-              İptal
+              İPTAL ET
             </button>
             <button
               type="submit"
               disabled={loading}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-50 flex items-center space-x-2"
+              className="px-10 py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl shadow-blue-500/20 active:scale-95 disabled:opacity-50 transition-all flex items-center justify-center gap-3"
             >
-              {loading && <LoadingSpinner size="small" />}
-              <span>{isEditMode ? 'Güncelle' : 'Oluştur'}</span>
+              {loading ? <LoadingSpinner size="small" color="white" /> : (isEditMode ? 'GÜNCELLEMELERİ KAYDET' : 'TOPLANTIYI PLANLA')}
             </button>
           </div>
         </form>

@@ -3,24 +3,23 @@ const pool = require('../db');
 const { createNotification } = require('../utils/notificationService');
 
 // GET /api/tasks/my
-// DÜZELTME: Şirket kontrolü kaldırıldı. 
-// Proje müşteriye ait olsa bile, görev bana atanmışsa görmeliyim.
+// GET /api/tasks/my
 exports.getMyTasks = async (req, res) => {
   const userId = req.user.userId;
-  // const companyId = req.user.companyId; // Artık buna gerek yok
 
   try {
+    // YENİ: pc.phase_id eklendi, böylece görev hangi disiplinde bilebileceğiz
     const query = `
-      SELECT t.*, p.name as project_name, p.project_code
+      SELECT t.*, p.name as project_name, p.project_code, pc.phase_id
       FROM tasks t
       JOIN projects p ON t.project_id = p.project_id
+      LEFT JOIN project_columns pc ON t.status = pc.column_id::text
       WHERE t.assignee_user_id = $1
       ORDER BY t.due_date ASC NULLS LAST
     `;
     
     const { rows } = await pool.query(query, [userId]);
     
-    // Frontend id veya task_id kullanıyor olabilir, ikisini de yollayalım
     const tasks = rows.map(t => ({
         ...t,
         id: t.task_id

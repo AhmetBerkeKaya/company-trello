@@ -1,18 +1,19 @@
 // src/pages/ProjectDetail.js
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../api/axios';
 import LoadingSpinner from '../components/UI/LoadingSpinner';
 import Board from '../components/Kanban/Board';
 import ViewerContainer from '../components/Viewer/ViewerContainer';
-
+import { useParams, useNavigate, Link, useLocation } from 'react-router-dom';
 const ProjectDetail = () => {
     const { projectId } = useParams();
     const navigate = useNavigate();
     const { userData } = useAuth();
 
-    // --- STATE TANIMLARI ---
+
+    const [initialRouted, setInitialRouted] = useState(false);
+    // --- STATE TANIMLARI (KORUNDU) ---
     const [project, setProject] = useState(null);
     const [phases, setPhases] = useState([]);
     const [activePhaseId, setActivePhaseId] = useState(null);
@@ -21,39 +22,47 @@ const ProjectDetail = () => {
     const [error, setError] = useState('');
     const [activeTab, setActiveTab] = useState('board');
 
-    // İstatistikler
     const [projectStats, setProjectStats] = useState({
         totalTasks: 0, completedTasks: 0, inProgressTasks: 0, todoTasks: 0,
         phaseStats: [], budget: { total: 0, spent: 0, remaining: 0 }
     });
 
-    // Modal State'leri
     const [showDeleteModal, setShowDeleteModal] = useState(false);
-    const [showCompleteModal, setShowCompleteModal] = useState(false); // Proje Tamamlama Onayı
+    const [showCompleteModal, setShowCompleteModal] = useState(false);
     const [showPhaseModal, setShowPhaseModal] = useState(false);
     const [newPhaseName, setNewPhaseName] = useState('');
     
-    // Rapor Modalı State'leri
     const [showReportModal, setShowReportModal] = useState(false);
     const [isGeneratingReport, setIsGeneratingReport] = useState(false);
     const [reportOptions, setReportOptions] = useState({
         financials: true, risks: true, phases: true, weekly: true
     });
 
-    // --- ROL VE YETKİ KONTROLLERİ ---
+    // --- ROL VE YETKİ KONTROLLERİ (KORUNDU) ---
     const isClient = userData?.role === 'client';
     const isObserver = userData?.role === 'observer';
-    
-    // Proje Düzenleme Yetkisi (Status değiştirme, Faz ekleme vb.)
-    // Sadece Admin ve Manager yapabilir.
     const canEditProject = !isClient && !isObserver && (userData?.role === 'admin' || userData?.role === 'manager');
-
-    // Ayarlar Sekmesi Görünürlüğü
     const canViewSettings = canEditProject;
 
     useEffect(() => {
         if (projectId && userData) fetchProjectData();
     }, [projectId, userData]);
+
+    // YENİ: Yönlendirme bilgisini (State) dinleyip sekmeyi ve fazı ayarlayan zeka
+    useEffect(() => {
+        if (phases.length > 0 && location.state && !initialRouted) {
+            const { targetPhaseId, targetTab } = location.state;
+            
+            if (targetPhaseId) setActivePhaseId(targetPhaseId);
+            if (targetTab) setActiveTab(targetTab);
+            else if (targetPhaseId) setActiveTab('board');
+            
+            setInitialRouted(true);
+            
+            // Rota bilgisini temizle ki sayfayı yenileyince tekrar aynı faza zorlamasın
+            window.history.replaceState({}, document.title);
+        }
+    }, [phases, location.state, initialRouted]);
 
     const fetchProjectData = async () => {
         try {
@@ -66,7 +75,12 @@ const ProjectDetail = () => {
             setProject(pRes.data);
             setProjectMembers(mRes.data);
             setPhases(phRes.data);
-            if (phRes.data.length > 0 && !activePhaseId) setActivePhaseId(phRes.data[0].id);
+            
+            // DÜZELTME: Sadece normal girişlerde varsayılan fazı ata. 
+            // Yönlendirme varsa yukarıdaki useEffect halledecek.
+            if (phRes.data.length > 0 && !activePhaseId && !location.state?.targetPhaseId) {
+                setActivePhaseId(phRes.data[0].id);
+            }
             refreshProjectStats();
         } catch (e) {
             if (e.response?.status === 403) setError('Yetkisiz erişim'); else setError('Proje bulunamadı');
@@ -77,9 +91,7 @@ const ProjectDetail = () => {
         try { const res = await api.get(`/projects/${projectId}/stats`); setProjectStats(res.data); } catch(e){}
     };
 
-    // --- AKSİYONLAR ---
-
-    // 1. Faz (Disiplin) Yönetimi
+    // --- AKSİYONLAR (KORUNDU) ---
     const handleAddPhase = async () => {
         if (!newPhaseName.trim()) return;
         try {
@@ -100,15 +112,10 @@ const ProjectDetail = () => {
         } catch(e) { alert('Silinemedi'); }
     };
 
-    // 2. Proje Durum Güncelleme (Header Dropdown'ı için)
     const handleStatusChange = async (e) => {
         const newStatus = e.target.value;
-        if (newStatus === 'completed') {
-            setShowCompleteModal(true); // Onay modalı aç
-        } else {
-            // Direkt güncelle
-            updateStatusAPI(newStatus);
-        }
+        if (newStatus === 'completed') setShowCompleteModal(true);
+        else updateStatusAPI(newStatus);
     };
 
     const updateStatusAPI = async (status) => {
@@ -119,12 +126,10 @@ const ProjectDetail = () => {
         } catch (e) { alert('Durum güncellenemedi'); }
     };
 
-    // 3. Proje Silme
     const handleDeleteProject = async () => {
         try { await api.delete(`/projects/${projectId}`); navigate('/projects'); } catch(e){ alert('Silinemedi'); }
     };
 
-    // 4. Rapor İndirme
     const confirmDownloadReport = async () => {
         setIsGeneratingReport(true);
         try {
@@ -134,7 +139,6 @@ const ProjectDetail = () => {
                 includePhases: reportOptions.phases,
                 includeWeekly: reportOptions.weekly
             }).toString();
-
             const response = await api.get(`/reports/project/${projectId}?${query}`, { responseType: 'blob' });
             const url = window.URL.createObjectURL(new Blob([response.data]));
             const link = document.createElement('a');
@@ -149,305 +153,322 @@ const ProjectDetail = () => {
         finally { setIsGeneratingReport(false); }
     };
 
-    // Görsel Yardımcılar
     const getStatusColor = (s) => {
         switch(s) {
-            case 'active': return 'bg-green-100 text-green-800 border-green-200';
-            case 'completed': return 'bg-gray-100 text-gray-800 border-gray-200';
-            case 'on-hold': return 'bg-yellow-100 text-yellow-800 border-yellow-200';
-            default: return 'bg-gray-100 text-gray-800';
+            case 'active': return 'bg-green-50 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800';
+            case 'completed': return 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800';
+            case 'on-hold': return 'bg-yellow-50 text-yellow-700 border-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400 dark:border-yellow-800';
+            default: return 'bg-gray-50 text-gray-700 border-gray-200';
         }
     };
 
-    if (loading) return <div className="h-64 flex justify-center items-center"><LoadingSpinner size="large"/></div>;
-    if (error) return <div className="p-8 text-center text-red-500">{error}</div>;
+    if (loading) return <div className="min-h-screen flex justify-center items-center"><LoadingSpinner size="large"/></div>;
+    if (error) return <div className="min-h-screen flex items-center justify-center p-8 text-center text-red-500 font-bold">{error}</div>;
     if (!project) return null;
 
     return (
-        <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
-            {/* --- HEADER (PROFESYONEL GÖRÜNÜM GERİ GELDİ) --- */}
-            <div className="mb-6 bg-white dark:bg-gray-800 p-6 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
-                <nav className="text-xs text-gray-500 mb-4 uppercase tracking-wider font-semibold">
-                    <Link to="/projects" className="hover:text-blue-600 transition-colors">Projeler</Link> <span className="mx-1">/</span> <span className="text-gray-900 dark:text-white">{project.name}</span>
+        <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-6 px-4 sm:px-6 lg:px-8 transition-colors duration-300">
+            {/* --- MODERN HEADER SECTION --- */}
+            <div className="max-w-7xl mx-auto mb-8 bg-white dark:bg-gray-800 p-8 rounded-[2.5rem] shadow-sm border border-gray-100 dark:border-gray-700 animate-fade-in relative overflow-hidden">
+                <div className="absolute top-0 right-0 p-6 opacity-5 select-none pointer-events-none text-8xl font-black italic uppercase">Project</div>
+                
+                <nav className="flex items-center gap-2 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-6">
+                    <Link to="/projects" className="hover:text-blue-600 transition-colors">Projelerim</Link> 
+                    <span className="opacity-50">/</span> 
+                    <span className="text-blue-600 truncate max-w-[200px]">{project.name}</span>
                 </nav>
                 
-                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                    <div>
-                        <div className="flex items-center gap-3">
-                            <h1 className="text-3xl font-bold text-gray-900 dark:text-white leading-tight">{project.name}</h1>
+                <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-8 relative z-10">
+                    <div className="flex-1 min-w-0">
+                        <div className="flex flex-wrap items-center gap-4 mb-3">
+                            <h1 className="text-4xl font-black text-gray-900 dark:text-white tracking-tight leading-tight">{project.name}</h1>
                             {isObserver && (
-                                <span className="px-3 py-1 bg-purple-100 text-purple-800 text-xs font-bold rounded-full dark:bg-purple-900/30 dark:text-purple-300 border border-purple-200">
-                                    👁️ Gözlemci Modu
+                                <span className="px-4 py-1.5 bg-purple-600 text-white text-[10px] font-black uppercase tracking-widest rounded-full shadow-lg shadow-purple-500/20">
+                                    Gözlemci Modu
                                 </span>
                             )}
                         </div>
-                        <p className="text-gray-600 dark:text-gray-400 mt-2 text-sm max-w-2xl">{project.description}</p>
+                        <p className="text-gray-500 dark:text-gray-400 text-lg font-medium leading-relaxed max-w-3xl">{project.description || 'Proje için henüz detaylı bir açıklama girilmemiş.'}</p>
                     </div>
 
-                    <div className="flex items-center gap-3">
-                        {/* DURUM DEĞİŞTİRME DROPDOWN'I (Sadece Yetkililere) */}
+                    <div className="flex flex-wrap items-center gap-4 shrink-0">
                         {canEditProject ? (
-                            <div className="relative">
+                            <div className="relative group">
                                 <select
                                     value={project.status}
                                     onChange={handleStatusChange}
-                                    className={`appearance-none pl-4 pr-10 py-2 rounded-lg font-medium text-sm border focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-blue-500 cursor-pointer transition-colors ${getStatusColor(project.status)} dark:bg-gray-700 dark:border-gray-600 dark:text-white`}
+                                    className={`appearance-none pl-6 pr-12 py-4 rounded-2xl font-black text-xs uppercase tracking-widest border-2 focus:outline-none focus:ring-0 cursor-pointer transition-all shadow-sm ${getStatusColor(project.status)}`}
                                 >
                                     <option value="active">🟢 Aktif</option>
                                     <option value="on-hold">🟡 Beklemede</option>
                                     <option value="completed">⚫ Tamamlandı</option>
                                 </select>
-                                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-600 dark:text-gray-300">
-                                    <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
+                                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-gray-400">
+                                    <svg className="h-4 w-4 fill-current" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
                                 </div>
                             </div>
                         ) : (
-                            <span className={`px-4 py-2 rounded-lg text-sm font-medium border ${getStatusColor(project.status)}`}>
+                            <div className={`px-6 py-4 rounded-2xl border-2 font-black text-xs uppercase tracking-widest ${getStatusColor(project.status)}`}>
                                 {project.status === 'active' ? '🟢 Aktif' : project.status === 'completed' ? '⚫ Tamamlandı' : '🟡 Beklemede'}
-                            </span>
+                            </div>
                         )}
 
-                        <button onClick={() => navigate('/projects')} className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium transition-colors dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600">
+                        <button onClick={() => navigate('/projects')} className="bg-gray-900 hover:bg-black text-white px-8 py-4 rounded-2xl font-black text-xs uppercase tracking-widest transition-all shadow-xl active:scale-95">
                             ← Geri
                         </button>
                     </div>
                 </div>
             </div>
 
-            {/* Tabs */}
-            <div className="border-b dark:border-gray-700 mb-6 flex space-x-6 overflow-x-auto">
-                {[{id:'board',l:'Yönetim',i:'📋'}, {id:'viewer',l:'Paftalar',i:'🗺️'}, {id:'overview',l:'Genel',i:'📊'}]
-                  .concat(canViewSettings ? [{id:'settings',l:'Ayarlar',i:'⚙️'}] : [])
-                  .map(t => (
-                    <button key={t.id} onClick={() => setActiveTab(t.id)} className={`py-3 px-1 border-b-2 font-medium text-sm whitespace-nowrap transition-colors ${activeTab===t.id?'border-blue-600 text-blue-600 dark:text-blue-400':'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}>
-                        <span className="mr-2">{t.i}</span>{t.l}
+            {/* --- NAVIGATION TABS --- */}
+            <div className="max-w-7xl mx-auto flex items-center gap-3 mb-10 overflow-x-auto pb-4 custom-scrollbar">
+                {[
+                    {id:'board', l:'Proje Yönetimi', i:'📋'}, 
+                    {id:'viewer', l:'Paftalar & 3D', i:'🗺️'}, 
+                    {id:'overview', l:'Genel Bakış', i:'📊'}
+                ].concat(canViewSettings ? [{id:'settings', l:'Proje Ayarları', i:'⚙️'}] : []).map(t => (
+                    <button 
+                        key={t.id} 
+                        onClick={() => setActiveTab(t.id)} 
+                        className={`flex items-center gap-3 px-8 py-4 rounded-2xl font-black text-xs uppercase tracking-widest transition-all whitespace-nowrap ${
+                            activeTab === t.id 
+                            ? 'bg-blue-600 text-white shadow-xl shadow-blue-500/30 translate-y-[-2px]' 
+                            : 'bg-white dark:bg-gray-800 text-gray-500 hover:bg-gray-50 dark:text-gray-400 border border-gray-100 dark:border-gray-700 shadow-sm'
+                        }`}
+                    >
+                        <span className="text-xl">{t.i}</span>{t.l}
                     </button>
                 ))}
             </div>
 
-            {/* --- İÇERİK ALANLARI --- */}
-
-            {/* 1. BOARD (KANBAN) */}
-            {activeTab === 'board' && (
-                <div className="h-[calc(100vh-280px)] flex flex-col">
-                    <div className="flex items-center mb-4 gap-2 overflow-x-auto pb-2 shrink-0">
-                        {phases.map(p => (
-                            <div key={p.id} className="relative group">
-                                <button onClick={() => setActivePhaseId(p.id)} className={`px-4 py-2 rounded-full text-sm font-medium border transition-all ${activePhaseId===p.id?'bg-blue-600 text-white shadow-md':'bg-white text-gray-700 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-200 dark:border-gray-600'}`}>
-                                    {p.name}
+            {/* --- CONTENT AREA --- */}
+            <div className="max-w-7xl mx-auto animate-fade-in">
+                {activeTab === 'board' && (
+                    <div className="h-[calc(100vh-320px)] flex flex-col">
+                        <div className="flex flex-wrap items-center mb-6 gap-3 shrink-0">
+                            {phases.map(p => (
+                                <div key={p.id} className="relative group">
+                                    <button 
+                                        onClick={() => setActivePhaseId(p.id)} 
+                                        className={`px-6 py-3 rounded-xl text-[11px] font-black uppercase tracking-wider border-2 transition-all ${
+                                            activePhaseId === p.id 
+                                            ? 'bg-white border-blue-600 text-blue-600 shadow-md dark:bg-gray-800' 
+                                            : 'bg-transparent border-gray-200 text-gray-400 hover:border-gray-300 dark:border-gray-700'
+                                        }`}
+                                    >
+                                        {p.name}
+                                    </button>
+                                    {canEditProject && phases.length > 1 && (
+                                        <button onClick={(e) => { e.stopPropagation(); handleDeletePhase(p.id); }} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 flex justify-center items-center opacity-0 group-hover:opacity-100 shadow-lg transition-all scale-75 group-hover:scale-100" title="Fazı Sil">✕</button>
+                                    )}
+                                </div>
+                            ))}
+                            {canEditProject && (
+                                <button onClick={() => setShowPhaseModal(true)} className="px-6 py-3 rounded-xl border-2 border-dashed border-blue-400 text-blue-600 text-[11px] font-black uppercase tracking-wider hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all">
+                                    + Yeni Disiplin
                                 </button>
-                                {canEditProject && phases.length > 1 && (
-                                    <button onClick={(e) => { e.stopPropagation(); handleDeletePhase(p.id); }} className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-4 h-4 text-xs flex justify-center items-center opacity-0 group-hover:opacity-100 shadow-sm transition-opacity" title="Sil">×</button>
-                                )}
+                            )}
+                        </div>
+                        {activePhaseId ? (
+                            <div className="flex-1 overflow-hidden bg-gray-100/50 dark:bg-gray-900/50 rounded-[2rem] border border-gray-200 dark:border-gray-800">
+                                <Board projectId={projectId} phaseId={activePhaseId} userRole={userData?.role} currentUserId={userData?.user_id} onTaskMoveSuccess={refreshProjectStats} isObserver={isObserver} /> 
                             </div>
-                        ))}
-                        {canEditProject && (
-                            <button onClick={() => setShowPhaseModal(true)} className="px-3 py-2 rounded-full border border-dashed border-blue-400 text-blue-600 text-sm hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors whitespace-nowrap">
-                                + Disiplin Ekle
-                            </button>
-                        )}
+                        ) : <div className="text-center py-32 text-gray-400 font-bold uppercase tracking-widest bg-white dark:bg-gray-800 rounded-[3rem]">Henüz bir disiplin tanımlanmadı.</div>}
                     </div>
-                    {activePhaseId ? 
-                        <div className="flex-1 overflow-hidden">
-                            <Board projectId={projectId} phaseId={activePhaseId} userRole={userData?.role} currentUserId={userData?.user_id} onTaskMoveSuccess={refreshProjectStats} isObserver={isObserver} /> 
-                        </div>
-                    : <div className="text-center py-20 text-gray-500">Henüz bir disiplin/faz bulunmuyor.</div>}
-                </div>
-            )}
+                )}
 
-            {/* 2. VIEWER */}
-            {activeTab === 'viewer' && <ViewerContainer projectId={projectId} />}
+                {activeTab === 'viewer' && (
+                    <div className="h-[calc(100vh-320px)] bg-white dark:bg-gray-800 rounded-[2.5rem] shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
+                        <ViewerContainer projectId={projectId} />
+                    </div>
+                )}
 
-            {/* 3. OVERVIEW */}
-            {activeTab === 'overview' && (
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                    {!isClient && (
-                        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border border-gray-100 dark:border-gray-700">
-                            <h3 className="font-bold mb-4 dark:text-white text-lg">Proje Ekibi</h3>
-                            <div className="space-y-4 max-h-96 overflow-y-auto pr-2">
-                                {projectMembers.map(m => (
-                                    <div key={m.user_id} className="flex items-center gap-3 p-2 hover:bg-gray-50 dark:hover:bg-gray-700 rounded transition-colors">
-                                        <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-full flex items-center justify-center text-white font-bold shadow-sm">{m.name[0]}</div>
-                                        <div>
-                                            <div className="text-sm font-medium dark:text-white">{m.name}</div>
-                                            <div className="text-xs text-gray-500">{m.role} • {m.department||'Genel'}</div>
+                {activeTab === 'overview' && (
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                        {/* Sol Panel: Ekip */}
+                        {!isClient && (
+                            <div className="lg:col-span-4 bg-white dark:bg-gray-800 rounded-[2rem] shadow-sm p-8 border border-gray-100 dark:border-gray-700 h-fit">
+                                <h3 className="text-xl font-black text-gray-900 dark:text-white mb-8 uppercase tracking-widest">📋 Proje Ekibi</h3>
+                                <div className="space-y-5 max-h-[500px] overflow-y-auto custom-scrollbar pr-2">
+                                    {projectMembers.map(m => (
+                                        <div key={m.user_id} className="flex items-center gap-4 p-4 hover:bg-blue-50 dark:hover:bg-gray-700/50 rounded-2xl transition-all border border-transparent hover:border-blue-100">
+                                            <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl flex items-center justify-center text-white font-black text-lg shadow-lg shadow-blue-500/20">{m.name[0]}</div>
+                                            <div className="min-w-0">
+                                                <div className="text-sm font-black text-gray-900 dark:text-white truncate uppercase">{m.name}</div>
+                                                <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{m.role} • {m.department||'Genel'}</div>
+                                            </div>
                                         </div>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    )}
-                    
-                    <div className={`space-y-6 ${isClient ? 'lg:col-span-3' : 'lg:col-span-2'}`}>
-                        {/* Rapor Butonu */}
-                        <div className="flex justify-end">
-                            <button onClick={() => setShowReportModal(true)} className="bg-gray-900 hover:bg-black text-white px-5 py-2.5 rounded-lg shadow-lg hover:shadow-xl transition-all flex items-center gap-2 font-medium">
-                                <span className="text-xl">📄</span> Profesyonel Rapor Oluştur
-                            </button>
-                        </div>
-                        
-                        {/* İstatistikler */}
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                            <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border-b-4 border-blue-500"><div className="text-3xl font-bold text-gray-900 dark:text-white">{projectStats.totalTasks}</div><div className="text-xs text-gray-500 font-bold uppercase tracking-wide mt-1">Toplam İş</div></div>
-                            <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border-b-4 border-green-500"><div className="text-3xl font-bold text-gray-900 dark:text-white">{projectStats.completedTasks}</div><div className="text-xs text-gray-500 font-bold uppercase tracking-wide mt-1">Tamamlanan</div></div>
-                            <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border-b-4 border-yellow-500"><div className="text-3xl font-bold text-gray-900 dark:text-white">{projectStats.inProgressTasks}</div><div className="text-xs text-gray-500 font-bold uppercase tracking-wide mt-1">Süren</div></div>
-                            <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border-b-4 border-red-500"><div className="text-3xl font-bold text-gray-900 dark:text-white">{projectStats.todoTasks}</div><div className="text-xs text-gray-500 font-bold uppercase tracking-wide mt-1">Bekleyen</div></div>
-                        </div>
-                        
-                        {/* Bütçe Kartı */}
-                        {!isClient && (userData?.role==='admin' || userData?.role==='manager' || isObserver) && projectStats.budget && (
-                            <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 relative overflow-hidden">
-                                <div className="absolute top-0 left-0 w-1 h-full bg-indigo-500"></div>
-                                <h3 className="font-bold mb-6 dark:text-white text-lg flex items-center gap-2">💰 Finansal Genel Bakış</h3>
-                                <div className="grid grid-cols-3 gap-6 text-center">
-                                    <div><div className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1">Toplam Bütçe</div><div className="text-xl font-bold text-gray-900 dark:text-white">{projectStats.budget.total.toLocaleString()} ₺</div></div>
-                                    <div><div className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1">Harcanan</div><div className="text-xl font-bold text-indigo-600">{projectStats.budget.spent.toLocaleString()} ₺</div></div>
-                                    <div><div className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1">Kalan</div><div className={`text-xl font-bold ${projectStats.budget.remaining<0?'text-red-600':'text-green-600'}`}>{projectStats.budget.remaining.toLocaleString()} ₺</div></div>
+                                    ))}
                                 </div>
                             </div>
                         )}
-
-                        {/* 3. DİSİPLİN (FAZ) İLERLEMELERİ - BURASI GERİ GELDİ */}
-                        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
-                            <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-700/50 flex justify-between items-center">
-                                <h2 className="text-lg font-bold text-gray-900 dark:text-white">Disiplin İlerlemeleri</h2>
-                                <span className="text-xs bg-blue-100 text-blue-800 px-2.5 py-0.5 rounded-full font-medium dark:bg-blue-900 dark:text-blue-200">Canlı Veri</span>
+                        
+                        {/* Sağ Panel: Analiz */}
+                        <div className={`space-y-8 ${isClient ? 'lg:col-span-12' : 'lg:col-span-8'}`}>
+                            {/* Rapor Butonu */}
+                            <div className="flex justify-between items-center px-4">
+                                <h3 className="text-xl font-black text-gray-900 dark:text-white uppercase tracking-widest">📈 Performans Verileri</h3>
+                                <button onClick={() => setShowReportModal(true)} className="bg-gray-900 hover:bg-black text-white px-8 py-4 rounded-2xl shadow-xl hover:shadow-2xl transition-all flex items-center gap-3 font-black text-xs uppercase tracking-widest active:scale-95">
+                                    <span>📄</span> Rapor Sihirbazı
+                                </button>
                             </div>
-                            <div className="divide-y divide-gray-100 dark:divide-gray-700">
-                                {projectStats.phaseStats && projectStats.phaseStats.length > 0 ? (
-                                    projectStats.phaseStats.map((phase) => {
-                                        const total = parseInt(phase.total_tasks);
-                                        const completed = parseInt(phase.completed_tasks);
-                                        // Yüzdelik hesaplama
-                                        const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
-                                        
-                                        return (
-                                            <div key={phase.phase_id} className="p-5 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
-                                                <div className="flex justify-between items-center mb-2">
-                                                    <div>
-                                                        <h3 className="font-bold text-gray-900 dark:text-white">{phase.phase_name}</h3>
-                                                        <div className="text-xs text-gray-500 dark:text-gray-400 mt-1 flex space-x-3">
-                                                            <span>✅ {completed} Biten</span>
-                                                            <span>🚀 {phase.in_progress_tasks} Süren</span>
-                                                            <span>📋 {phase.todo_tasks} Bekleyen</span>
+                            
+                            {/* İstatistik Kartları */}
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 px-2">
+                                {[
+                                    {l:'Toplam İş', v:projectStats.totalTasks, c:'blue'},
+                                    {l:'Tamamlanan', v:projectStats.completedTasks, c:'green'},
+                                    {l:'Sürüyor', v:projectStats.inProgressTasks, c:'yellow'},
+                                    {l:'Bekleyen', v:projectStats.todoTasks, c:'red'}
+                                ].map((s, i) => (
+                                    <div key={i} className="bg-white dark:bg-gray-800 p-8 rounded-[2rem] shadow-sm border border-gray-100 dark:border-gray-700 text-center transform hover:scale-105 transition-transform">
+                                        <div className={`text-4xl font-black text-${s.c}-600 mb-2`}>{s.v}</div>
+                                        <div className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">{s.l}</div>
+                                    </div>
+                                ))}
+                            </div>
+                            
+                            {/* Finansal Analiz */}
+                            {!isClient && (userData?.role==='admin' || userData?.role==='manager' || isObserver) && projectStats.budget && (
+                                <div className="bg-gray-900 dark:bg-gray-800 p-10 rounded-[2.5rem] shadow-2xl text-white relative overflow-hidden">
+                                    <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -mr-16 -mt-16"></div>
+                                    <h3 className="text-lg font-black uppercase tracking-[0.3em] mb-10 flex items-center gap-4"><span className="text-3xl">💰</span> Finansal Özet</h3>
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-12 text-center">
+                                        <div className="space-y-2"><div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Planlanan Bütçe</div><div className="text-3xl font-black">{projectStats.budget.total.toLocaleString()} ₺</div></div>
+                                        <div className="space-y-2"><div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest text-indigo-400">Gerçekleşen Maliyet</div><div className="text-3xl font-black text-indigo-400">{projectStats.budget.spent.toLocaleString()} ₺</div></div>
+                                        <div className="space-y-2"><div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Kalan Kaynak</div><div className={`text-3xl font-black ${projectStats.budget.remaining < 0 ? 'text-red-400' : 'text-green-400'}`}>{projectStats.budget.remaining.toLocaleString()} ₺</div></div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Disiplin Bazlı İlerleme */}
+                            <div className="bg-white dark:bg-gray-800 rounded-[2rem] shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
+                                <div className="px-10 py-6 border-b border-gray-100 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/50 flex justify-between items-center">
+                                    <h2 className="text-sm font-black text-gray-900 dark:text-white uppercase tracking-[0.2em]">Disiplin Durum Analizi</h2>
+                                    <span className="px-4 py-1 bg-blue-100 text-blue-700 text-[10px] font-black uppercase rounded-lg">Real-Time</span>
+                                </div>
+                                <div className="p-4 divide-y divide-gray-50 dark:divide-gray-700/50">
+                                    {projectStats.phaseStats && projectStats.phaseStats.length > 0 ? (
+                                        projectStats.phaseStats.map((phase) => {
+                                            const total = parseInt(phase.total_tasks);
+                                            const completed = parseInt(phase.completed_tasks);
+                                            const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
+                                            return (
+                                                <div key={phase.phase_id} className="p-6 hover:bg-gray-50 dark:hover:bg-gray-700/20 rounded-3xl transition-all">
+                                                    <div className="flex justify-between items-end mb-4">
+                                                        <div>
+                                                            <h3 className="text-base font-black text-gray-900 dark:text-white uppercase tracking-wider">{phase.phase_name}</h3>
+                                                            <div className="text-[10px] font-bold text-gray-400 mt-2 flex gap-4">
+                                                                <span>✅ {completed} Biten</span>
+                                                                <span>🚀 {phase.in_progress_tasks} Süren</span>
+                                                                <span>📋 {phase.todo_tasks} Bekleyen</span>
+                                                            </div>
+                                                        </div>
+                                                        <div className="text-3xl font-black text-gray-900 dark:text-white">{percentage}%</div>
+                                                    </div>
+                                                    <div className="w-full bg-gray-100 dark:bg-gray-700 rounded-full h-3 overflow-hidden shadow-inner">
+                                                        <div className="bg-blue-600 h-full rounded-full transition-all duration-1000 ease-out relative shadow-lg shadow-blue-500/20" style={{ width: `${percentage}%` }}>
+                                                            <div className="absolute top-0 left-0 bottom-0 right-0 bg-gradient-to-r from-transparent via-white/20 to-transparent w-full"></div>
                                                         </div>
                                                     </div>
-                                                    <div className="text-right">
-                                                        <span className="text-2xl font-bold text-gray-800 dark:text-white">{percentage}%</span>
-                                                    </div>
                                                 </div>
-                                                
-                                                {/* Progress Bar */}
-                                                <div className="w-full bg-gray-100 dark:bg-gray-600 rounded-full h-2.5 overflow-hidden">
-                                                    <div 
-                                                        className="bg-green-500 h-full rounded-full transition-all duration-700 ease-out relative" 
-                                                        style={{ width: `${percentage}%` }}
-                                                    >
-                                                        {/* Parlama efekti */}
-                                                        <div className="absolute top-0 left-0 bottom-0 right-0 bg-white opacity-20 w-full h-full"></div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        );
-                                    })
-                                ) : <div className="p-8 text-center text-gray-500">Henüz disiplin verisi yok.</div>}
+                                            );
+                                        })
+                                    ) : <div className="p-16 text-center text-gray-400 font-bold uppercase tracking-widest text-xs">Analiz verisi bulunamadı.</div>}
+                                </div>
                             </div>
                         </div>
                     </div>
-                </div>
-            )}
+                )}
 
-            {/* 4. SETTINGS */}
-            {activeTab === 'settings' && canViewSettings && (
-                <div className="bg-white dark:bg-gray-800 p-8 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 max-w-2xl mx-auto mt-8">
-                    <h3 className="text-xl font-bold text-red-600 mb-6 flex items-center gap-2">⚠️ Tehlikeli Bölge</h3>
-                    <p className="text-gray-600 dark:text-gray-300 mb-6">Bu projeyi sildiğinizde, projeye ait tüm görevler, dosyalar ve geçmiş veriler kalıcı olarak silinecektir. Bu işlem geri alınamaz.</p>
-                    <div className="flex justify-end">
-                        <button onClick={() => setShowDeleteModal(true)} className="bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 px-6 py-3 rounded-lg font-bold transition-colors">
-                            Projeyi Kalıcı Olarak Sil
-                        </button>
+                {activeTab === 'settings' && canViewSettings && (
+                    <div className="bg-white dark:bg-gray-800 p-12 rounded-[3rem] shadow-sm border-2 border-red-50 dark:border-red-900/20 max-w-2xl mx-auto mt-12 animate-slide-in">
+                        <h3 className="text-2xl font-black text-red-600 mb-8 uppercase tracking-widest flex items-center gap-4">⚠️ Kritik Bölge</h3>
+                        <p className="text-gray-500 dark:text-gray-400 mb-10 text-lg font-medium leading-relaxed italic">Bu işlem projenin tüm tarihçesini, dosyalarını ve iletişim kayıtlarını sunucudan kalıcı olarak kaldıracaktır.</p>
+                        <div className="flex justify-end">
+                            <button onClick={() => setShowDeleteModal(true)} className="bg-red-50 hover:bg-red-600 hover:text-white text-red-600 border-2 border-red-100 px-10 py-5 rounded-2xl font-black text-xs uppercase tracking-widest transition-all shadow-xl shadow-red-500/10 active:scale-95">
+                                Projeyi Tamamen İmha Et
+                            </button>
+                        </div>
+                    </div>
+                )}
+            </div>
+
+            {/* --- MODALS (CİLALANDI) --- */}
+            
+            {/* 1. Faz Ekleme */}
+            {showPhaseModal && (
+                <div className="fixed inset-0 bg-gray-900/80 backdrop-blur-lg flex items-center justify-center p-4 z-50 animate-fade-in">
+                    <div className="bg-white dark:bg-gray-800 p-10 rounded-[2.5rem] w-[400px] shadow-2xl border border-gray-100 dark:border-gray-700">
+                        <h3 className="text-xl font-black text-gray-900 dark:text-white mb-8 uppercase tracking-[0.2em]">Yeni Disiplin</h3>
+                        <input autoFocus className="w-full px-6 py-4 bg-gray-50 dark:bg-gray-900 border-2 border-gray-100 dark:border-gray-700 rounded-2xl font-bold dark:text-white outline-none focus:border-blue-500 transition-all mb-8" placeholder="Örn: Statik Projeler" value={newPhaseName} onChange={e=>setNewPhaseName(e.target.value)} onKeyDown={e=>e.key==='Enter'&&handleAddPhase()}/>
+                        <div className="flex gap-4">
+                            <button onClick={()=>setShowPhaseModal(false)} className="flex-1 py-4 bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-300 rounded-2xl font-black text-xs uppercase tracking-widest transition-all">İptal</button>
+                            <button onClick={handleAddPhase} className="flex-1 py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl shadow-blue-500/20 active:scale-95">Ekle</button>
+                        </div>
                     </div>
                 </div>
             )}
 
-            {/* --- MODALLAR --- */}
-            
-            {/* Rapor Seçenekleri Modalı */}
+            {/* 2. Rapor Sihirbazı */}
             {showReportModal && (
-                <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
-                    <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md animate-in fade-in zoom-in duration-200">
-                        <div className="p-6 border-b dark:border-gray-700 flex justify-between items-center">
-                            <h3 className="text-lg font-bold text-gray-900 dark:text-white">Rapor Sihirbazı</h3>
-                            <button onClick={() => setShowReportModal(false)} className="text-gray-400 hover:text-red-500 text-2xl">×</button>
+                <div className="fixed inset-0 bg-gray-900/80 backdrop-blur-xl flex items-center justify-center z-50 p-4 animate-fade-in">
+                    <div className="bg-white dark:bg-gray-800 rounded-[3rem] shadow-2xl w-full max-w-md border border-gray-100 dark:border-gray-700 overflow-hidden animate-slide-in">
+                        <div className="p-10 border-b dark:border-gray-700 flex justify-between items-center bg-gray-50/50 dark:bg-gray-900/50">
+                            <h3 className="text-lg font-black text-gray-900 dark:text-white uppercase tracking-widest">Rapor Parametreleri</h3>
+                            <button onClick={() => setShowReportModal(false)} className="w-10 h-10 rounded-full bg-white dark:bg-gray-700 shadow-sm flex items-center justify-center text-gray-400 hover:text-red-500">✕</button>
                         </div>
-                        <div className="p-6 space-y-4">
-                            <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Rapora dahil etmek istediğiniz bölümleri seçin:</p>
-                            
+                        <div className="p-10 space-y-4">
                             {[
-                                {k:'financials', l:'Finansal Özet', d:'Bütçe, harcanan ve kalan tutarlar', i:'💰'},
-                                {k:'weekly', l:'Haftalık Analiz', d:'Son 12 haftanın iş dökümü', i:'📅'},
-                                {k:'risks', l:'Risk Analizi', d:'Geciken ve yaklaşan kritik görevler', i:'⚠️'},
-                                {k:'phases', l:'Disiplin Detayları', d:'Her disiplin için görev sayıları', i:'🏗️'}
+                                {k:'financials', l:'Bütçe Analizi', d:'Nakit akışı ve maliyet verileri', i:'💰'},
+                                {k:'weekly', l:'Haftalık İvme', d:'İş yükü ve hız grafikleri', i:'📅'},
+                                {k:'risks', l:'Risk & Kritik Yol', d:'Geciken işlerin tespiti', i:'⚠️'},
+                                {k:'phases', l:'Disiplin Kırılımı', d:'Bölüm bazlı detaylı döküm', i:'🏗️'}
                             ].map(opt => (
-                                <label key={opt.k} className="flex items-center p-3 border rounded-xl cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors group">
-                                    <input type="checkbox" checked={reportOptions[opt.k]} onChange={e => setReportOptions({...reportOptions, [opt.k]: e.target.checked})} className="w-5 h-5 text-blue-600 rounded focus:ring-blue-500" />
-                                    <div className="ml-4">
-                                        <span className="block font-bold text-gray-900 dark:text-white group-hover:text-blue-600 transition-colors">{opt.i} {opt.l}</span>
-                                        <span className="text-xs text-gray-500">{opt.d}</span>
+                                <label key={opt.k} className={`flex items-center p-5 border-2 rounded-[1.5rem] cursor-pointer transition-all group ${reportOptions[opt.k] ? 'bg-blue-50 border-blue-200 dark:bg-blue-900/20 dark:border-blue-800' : 'bg-transparent border-gray-100 dark:border-gray-700 hover:bg-gray-50'}`}>
+                                    <input type="checkbox" checked={reportOptions[opt.k]} onChange={e => setReportOptions({...reportOptions, [opt.k]: e.target.checked})} className="w-6 h-6 text-blue-600 rounded-lg focus:ring-0" />
+                                    <div className="ml-5">
+                                        <span className={`block font-black text-xs uppercase tracking-wider ${reportOptions[opt.k] ? 'text-blue-700 dark:text-blue-400' : 'text-gray-900 dark:text-white'}`}>{opt.i} {opt.l}</span>
+                                        <span className="text-[10px] font-bold text-gray-400 mt-1 uppercase tracking-tight">{opt.d}</span>
                                     </div>
                                 </label>
                             ))}
                         </div>
-                        <div className="p-6 border-t dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 rounded-b-2xl flex justify-end gap-3">
-                            <button onClick={() => setShowReportModal(false)} className="px-5 py-2.5 text-gray-600 hover:text-gray-800 font-medium">İptal</button>
-                            <button onClick={confirmDownloadReport} disabled={isGeneratingReport} className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold disabled:opacity-50 flex items-center gap-2 shadow-lg shadow-blue-500/30">
-                                {isGeneratingReport ? <LoadingSpinner size="small" color="white"/> : 'Raporu Oluştur ve İndir'}
+                        <div className="p-10 border-t dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/50 flex flex-col gap-3">
+                            <button onClick={confirmDownloadReport} disabled={isGeneratingReport} className="w-full py-5 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black text-xs uppercase tracking-[0.2em] shadow-2xl shadow-blue-500/30 active:scale-95 disabled:opacity-50 flex justify-center items-center gap-3">
+                                {isGeneratingReport ? <LoadingSpinner size="small" color="white"/> : 'PDF Dokümanı Üret'}
                             </button>
+                            <button onClick={() => setShowReportModal(false)} className="w-full py-4 text-gray-400 font-black text-[10px] uppercase tracking-widest hover:text-gray-600">İptal</button>
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* Faz Ekleme Modalı */}
-            {showPhaseModal && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-                    <div className="bg-white dark:bg-gray-800 p-6 rounded-xl w-96 shadow-xl">
-                        <h3 className="font-bold mb-4 text-lg dark:text-white">Yeni Disiplin Oluştur</h3>
-                        <input autoFocus className="border w-full p-3 mb-6 rounded-lg dark:bg-gray-700 dark:text-white outline-none focus:ring-2 focus:ring-blue-500" placeholder="Örn: Mimari, Statik..." value={newPhaseName} onChange={e=>setNewPhaseName(e.target.value)} />
-                        <div className="flex justify-end gap-2">
-                            <button onClick={()=>setShowPhaseModal(false)} className="text-gray-500 px-4 py-2 hover:bg-gray-100 rounded-lg">İptal</button>
-                            <button onClick={handleAddPhase} className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 font-medium">Ekle</button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* Proje Tamamlama Modalı */}
+            {/* 3. Proje Tamamlama Onayı */}
             {showCompleteModal && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-                    <div className="bg-white dark:bg-gray-800 p-6 rounded-xl max-w-sm w-full shadow-2xl">
-                        <div className="text-center mb-6">
-                            <div className="text-4xl mb-2">🎉</div>
-                            <h3 className="text-xl font-bold dark:text-white">Projeyi Tamamla?</h3>
-                            <p className="text-gray-500 mt-2 text-sm">Bu projeyi tamamlandı olarak işaretlemek üzeresiniz. Harika iş!</p>
-                        </div>
-                        <div className="flex gap-3">
-                            <button onClick={() => setShowCompleteModal(false)} className="flex-1 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-medium">Vazgeç</button>
-                            <button onClick={() => updateStatusAPI('completed')} className="flex-1 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-lg font-bold shadow-lg shadow-green-500/30">Evet, Tamamla</button>
+                <div className="fixed inset-0 bg-gray-900/80 backdrop-blur-lg flex items-center justify-center z-50 p-4 animate-fade-in">
+                    <div className="bg-white dark:bg-gray-800 p-10 rounded-[3rem] max-w-sm w-full shadow-2xl border border-gray-100 dark:border-gray-700 text-center animate-slide-in">
+                        <div className="text-6xl mb-6">🏆</div>
+                        <h3 className="text-2xl font-black dark:text-white uppercase tracking-widest mb-4">Harika İş!</h3>
+                        <p className="text-gray-500 dark:text-gray-400 font-medium mb-10 leading-relaxed italic text-sm">Bu projeyi başarıyla tamamlandı olarak işaretlemek istediğinizden emin misiniz?</p>
+                        <div className="flex flex-col gap-3">
+                            <button onClick={() => updateStatusAPI('completed')} className="w-full py-5 bg-green-600 hover:bg-green-700 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl shadow-green-500/20 active:scale-95 transition-all">Evet, Teslim Et</button>
+                            <button onClick={() => setShowCompleteModal(false)} className="w-full py-4 bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-300 rounded-2xl font-black text-xs uppercase tracking-widest transition-all">Vazgeç</button>
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* Silme Modalı */}
+            {/* 4. Silme Onayı */}
             {showDeleteModal && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-                    <div className="bg-white dark:bg-gray-800 p-6 rounded-xl max-w-sm w-full shadow-2xl border-2 border-red-100 dark:border-red-900">
-                        <h3 className="text-xl font-bold text-red-600 mb-2">Projeyi Sil?</h3>
-                        <p className="text-gray-600 dark:text-gray-300 mb-6">Bu işlem geri alınamaz. Emin misiniz?</p>
-                        <div className="flex justify-end gap-3">
-                            <button onClick={() => setShowDeleteModal(false)} className="px-4 py-2 bg-gray-100 rounded-lg font-medium">İptal</button>
-                            <button onClick={handleDeleteProject} className="px-4 py-2 bg-red-600 text-white rounded-lg font-bold hover:bg-red-700">Evet, Sil</button>
+                <div className="fixed inset-0 bg-red-900/20 backdrop-blur-xl flex items-center justify-center z-50 p-4 animate-fade-in">
+                    <div className="bg-white dark:bg-gray-800 p-12 rounded-[3rem] max-w-sm w-full shadow-2xl border-4 border-red-100 dark:border-red-900 text-center animate-slide-in">
+                        <div className="text-5xl mb-6">🗑️</div>
+                        <h3 className="text-xl font-black text-red-600 uppercase tracking-widest mb-4">Geri Dönüş Yok</h3>
+                        <p className="text-gray-500 dark:text-gray-300 font-bold mb-10 text-sm">Tüm verileri silmek istediğinize emin misiniz? Bu işlem iptal edilemez.</p>
+                        <div className="flex flex-col gap-3">
+                            <button onClick={handleDeleteProject} className="w-full py-5 bg-red-600 hover:bg-red-700 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl shadow-red-500/20 active:scale-95 transition-all">Kalıcı Olarak Sil</button>
+                            <button onClick={() => setShowDeleteModal(false)} className="w-full py-4 bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-300 rounded-2xl font-black text-xs uppercase tracking-widest transition-all">İptal</button>
                         </div>
                     </div>
                 </div>

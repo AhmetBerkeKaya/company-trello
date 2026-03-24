@@ -6,9 +6,13 @@ const bcrypt = require('bcryptjs');
 exports.getAllUsers = async (req, res) => {
   try {
     const query = `
-      SELECT user_id, name, email, role, department, created_at, last_login_at 
-      FROM users 
-      ORDER BY created_at DESC
+      SELECT 
+        u.user_id, u.name, u.email, u.role, u.department, u.company_id, 
+        u.created_at, u.last_login_at,
+        c.name as company_name
+      FROM users u
+      LEFT JOIN companies c ON u.company_id = c.company_id
+      ORDER BY u.created_at DESC
     `;
     const { rows } = await pool.query(query);
     const users = rows.map(user => ({ ...user, id: user.user_id }));
@@ -165,7 +169,8 @@ exports.updateUserRole = async (req, res) => {
   if (targetUserId === adminUserId) {
     return res.status(400).json({ message: 'Kendi rolünüzü değiştiremezsiniz' });
   }
-  if (!['admin', 'manager', 'user'].includes(newRole)) {
+  // DÜZELTİLDİ: Artık observer ve client rollerini de kabul ediyor
+  if (!['admin', 'manager', 'user', 'observer', 'client'].includes(newRole)) {
     return res.status(400).json({ message: 'Geçersiz rol tipi' });
   }
   try {
@@ -229,6 +234,101 @@ exports.getUserById = async (req, res) => {
     res.status(200).json({ ...rows[0], id: rows[0].user_id });
   } catch (error) {
     console.error('Kullanıcı getirme hatası:', error);
+    res.status(500).json({ message: 'Sunucu hatası' });
+  }
+};
+
+
+// POST /api/users (AdminUsers.js içinden yeni kullanıcı eklemek için)
+exports.createUser = async (req, res) => {
+  const { company_id, name, email, password, role, department } = req.body;
+  const { role: adminRole } = req.user;
+
+  // Güvenlik: Sadece Admin rolü kullanıcı ekleyebilir
+  if (adminRole !== 'admin') {
+    return res.status(403).json({ message: 'Sadece yöneticiler kullanıcı oluşturabilir' });
+  }
+
+  if (!company_id || !name || !email || !password || !role) {
+    return res.status(400).json({ message: 'Lütfen tüm zorunlu alanları doldurun' });
+  }
+
+  try {
+    // 1. Şifreyi güvenli bir şekilde hash'le
+    const salt = await bcrypt.genSalt(10);
+    const passwordHash = await bcrypt.hash(password, salt);
+
+    // 2. Veritabanına kaydet
+    const query = `
+      INSERT INTO users (company_id, name, email, password_hash, role, department)
+      VALUES ($1, $2, $3, $4, $5, $6)
+      RETURNING user_id, name, email, role, department, created_at
+    `;
+    const { rows } = await pool.query(query, [company_id, name, email, passwordHash, role, department || null]);
+    
+    // 3. Başarı durumunda yeni kullanıcıyı frontend'e döndür
+    const newUser = { ...rows[0], id: rows[0].user_id };
+    res.status(201).json(newUser);
+
+  } catch (error) {
+    // Unique constraint violation (Aynı e-posta varsa)
+    if (error.code === '23505') { 
+        return res.status(409).json({ message: 'Bu e-posta adresi sistemde zaten kayıtlı' });
+    }
+    console.error('Kullanıcı oluşturma hatası:', error);
+    res.status(500).json({ message: 'Sunucu hatası' });
+  }
+};
+
+
+// DELETE /api/users/:userId (AdminUsers.js içinden kullanıcı silmek için)
+exports.deleteUser = async (req, res) => {
+  const { userId: targetUserId } = req.params;
+  const { role: adminRole, userId: adminUserId } = req.user;
+
+  if (adminRole !== 'admin') {
+    return res.status(403).json({ message: 'Sadece yöneticiler kullanıcı silebilir' });
+  }
+  if (targetUserId === adminUserId) {
+    return res.status(400).json({ message: 'Kendi hesabınızı silemezsiniz!' });
+  }
+
+  try {
+    const { rowCount } = await pool.query('DELETE FROM users WHERE user_id = $1', [targetUserId]);
+    if (rowCount === 0) return res.status(404).json({ message: 'Kullanıcı bulunamadı' });
+    
+    res.status(200).json({ message: 'Kullanıcı başarıyla silindi' });
+  } catch (error) {
+    console.error('Kullanıcı silme hatası:', error);
+    // Eğer kullanıcının sisteme bağlı projeleri/görevleri varsa veritabanı silmeye izin vermeyebilir (Foreign Key koruması)
+    res.status(500).json({ message: 'Bu kullanıcı sistemde aktif projelere veya görevlere sahip olduğu için silinemiyor.' });
+  }
+};
+
+// PUT /api/users/:userId (AdminUsers.js içinden kullanıcı bilgilerini güncellemek için)
+exports.updateUser = async (req, res) => {
+  const { userId: targetUserId } = req.params;
+  const { name, email, company_id, role, department } = req.body;
+  const { role: adminRole } = req.user;
+
+  if (adminRole !== 'admin') {
+    return res.status(403).json({ message: 'Yetkisiz işlem' });
+  }
+
+  try {
+    const query = `
+      UPDATE users 
+      SET name = $1, email = $2, company_id = $3, role = $4, department = $5, updated_at = NOW()
+      WHERE user_id = $6
+      RETURNING *
+    `;
+    const { rows } = await pool.query(query, [name, email, company_id || null, role, department || null, targetUserId]);
+    
+    if (rows.length === 0) return res.status(404).json({ message: 'Kullanıcı bulunamadı' });
+    res.status(200).json(rows[0]);
+  } catch (error) {
+    if (error.code === '23505') return res.status(409).json({ message: 'Bu e-posta adresi başka bir kullanıcı tarafından kullanılıyor.' });
+    console.error('Kullanıcı güncelleme hatası:', error);
     res.status(500).json({ message: 'Sunucu hatası' });
   }
 };

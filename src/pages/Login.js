@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import LoadingSpinner from '../components/UI/LoadingSpinner';
+import icon from './icon.png'; // aynı dizindeki icon.png
 
 const Login = () => {
   const [email, setEmail] = useState('');
@@ -61,6 +62,18 @@ const Login = () => {
           
           {/* Logo / Başlık Alanı */}
           <div className="text-center mb-10">
+
+            {/* --- İkon --- */}
+            <div className="flex justify-center mb-5">
+              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-50 to-indigo-100 border border-blue-100/80 shadow-[0_4px_20px_rgba(37,99,235,0.15)] flex items-center justify-center p-1.5">
+                <img
+                  src={icon}
+                  alt="ProAEC Logo"
+                  className="w-full h-full object-contain drop-shadow-sm"
+                />
+              </div>
+            </div>
+
             <h1 className="text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-blue-700 to-indigo-700 tracking-tight mb-2">
               ProAEC
             </h1>

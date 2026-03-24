@@ -1,244 +1,144 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useDrag } from 'react-dnd';
-import api from '../../api/axios'; // YENİ
+import { useLocation } from 'react-router-dom';
+import api from '../../api/axios'; 
 import TaskDetailModal from './TaskDetailModal';
 
-const ItemTypes = {
-  TASK: 'task'
-};
+const ItemTypes = { TASK: 'task' };
 
-// Confirm Modal Component (TaskDetailModal kullanacak, ama burada tanımlı değil)
-// (Bu component'i TaskDetailModal.js'ten buraya taşıyabilir veya
-// UI klasörüne alıp her iki yerden de import edebilirsiniz)
-const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message }) => {
-  if (!isOpen) return null;
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-60">
-      <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-sm">
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">{title}</h3>
-        <p className="text-gray-600 dark:text-gray-400 mb-6">{message}</p>
-        <div className="flex justify-end space-x-3">
-          <button onClick={onClose} className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-300 font-medium">
-            İptal
-          </button>
-          <button onClick={onConfirm} className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg font-medium transition-colors">
-            Sil
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-
-// Tarih durumunu kontrol eden fonksiyon (PostgreSQL uyumlu)
 const getDateStatus = (dueDate) => {
   if (!dueDate) return null;
-  
-  const today = new Date();
-  today.setHours(0, 0, 0, 0); // Günün başlangıcı
-  const due = new Date(dueDate); // API'den ISO string (örn: "2025-11-05") gelecek
-  due.setHours(0, 0, 0, 0); // Günün başlangıcı
-  
+  const today = new Date(); today.setHours(0, 0, 0, 0); 
+  const due = new Date(dueDate); due.setHours(0, 0, 0, 0); 
   const timeDiff = due.getTime() - today.getTime();
   const daysDiff = Math.ceil(timeDiff / (1000 * 3600 * 24));
   
-  if (daysDiff < 0) return { 
-    status: 'overdue', 
-    text: 'Süresi geçmiş', 
-    class: 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-300',
-    icon: '🔴'
-  };
-  if (daysDiff === 0) return { 
-    status: 'today', 
-    text: 'Bugün', 
-    class: 'bg-orange-100 text-orange-800 dark:bg-orange-900/20 dark:text-orange-300',
-    icon: '🟠'
-  };
-  if (daysDiff <= 3) return { 
-    status: 'urgent', 
-    text: 'Yaklaşıyor', 
-    class: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-300',
-    icon: '🟡'
-  };
-  return { 
-    status: 'normal', 
-    text: 'Planlanan', 
-    class: 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-300',
-    icon: '🟢'
-  };
+  if (daysDiff < 0) return { status: 'overdue', text: 'Süresi geçmiş', class: 'bg-red-50 text-red-700 border-red-200 dark:bg-red-900/20 dark:text-red-400', icon: '🔴' };
+  if (daysDiff === 0) return { status: 'today', text: 'Bugün', class: 'bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-900/20 dark:text-orange-400', icon: '🟠' };
+  if (daysDiff <= 3) return { status: 'urgent', text: 'Yaklaşıyor', class: 'bg-yellow-50 text-yellow-700 border-yellow-200 dark:bg-yellow-900/20 dark:text-yellow-400', icon: '🟡' };
+  return { status: 'normal', text: 'Planlanan', class: 'bg-green-50 text-green-700 border-green-200 dark:bg-green-900/20 dark:text-green-400', icon: '🟢' };
 };
 
-// Draggable Task Component (API'ye bağlandı)
 const DraggableTask = ({ task, onUpdate, userRole, currentUserId }) => {
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [assignedUser, setAssignedUser] = useState(null);
+  
+  // YENİ: Animasyon State'leri
+  const [isHighlighted, setIsHighlighted] = useState(false);
+  const taskRef = useRef(null);
+  const location = useLocation();
 
-  // Yetki kontrolleri (Veritabanı sütun adlarına göre)
   const canEditTask = userRole === 'admin' || userRole === 'manager' || task.created_by_user_id === currentUserId;
   const canDeleteTask = userRole === 'admin' || userRole === 'manager' || task.created_by_user_id === currentUserId;
   const canDragTask = userRole === 'admin' || userRole === 'manager' || task.assignee_user_id === currentUserId;
 
-  // Tarih durumu (Veritabanı sütun adına göre)
   const dateStatus = task.due_date ? getDateStatus(task.due_date) : null;
 
-  // Drag configuration
   const [{ isDragging }, drag, dragPreview] = useDrag(() => ({
     type: ItemTypes.TASK,
-    item: {
-      id: task.id, // Board.js 'id' bekliyor (task_id'nin kopyası)
-      status: task.status,
-      type: 'task'
-    },
-    collect: (monitor) => ({
-      isDragging: !!monitor.isDragging(),
-    }),
+    item: { id: task.id, status: task.status, type: 'task' },
+    collect: (monitor) => ({ isDragging: !!monitor.isDragging() }),
     canDrag: () => canDragTask,
   }), [task.id, task.status, canDragTask]);
 
-  // Atanan kullanıcıyı getir (API'den)
+  // YENİ: Dashboard'dan gelen odaklanma ve parlama animasyonu
   useEffect(() => {
-    if (task.assignee_user_id) {
-      fetchAssignedUser(task.assignee_user_id);
-    } else {
-      setAssignedUser(null);
+    const targetId = location.state?.targetTaskId;
+    if (targetId && (targetId === task.id || targetId === task.task_id)) {
+      setIsHighlighted(true);
+      
+      // Board yüklendikten az sonra görevi ekranın tam ortasına kaydır
+      setTimeout(() => {
+        taskRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 500);
+
+      // 3 saniye sonra neon ışığı kapat
+      const timer = setTimeout(() => setIsHighlighted(false), 3000);
+      return () => clearTimeout(timer);
     }
+  }, [location.state, task.id, task.task_id]);
+
+  useEffect(() => {
+    if (task.assignee_user_id) fetchAssignedUser(task.assignee_user_id);
+    else setAssignedUser(null);
   }, [task.assignee_user_id]);
 
   const fetchAssignedUser = async (userId) => {
-    try {
-      // (Bebek Adımı 7.D'de eklediğimiz API yolu)
-      const response = await api.get(`/users/${userId}`); 
-      setAssignedUser(response.data);
-    } catch (error) {
-      console.error('Atanan kullanıcıyı getirme hatası:', error);
-      // Kullanıcı silinmiş olabilir
-      setAssignedUser({ name: 'Bilinmeyen Kullanıcı' });
-    }
+    try { const response = await api.get(`/users/${userId}`); setAssignedUser(response.data); } 
+    catch (error) { setAssignedUser({ name: 'Bilinmeyen Kullanıcı' }); }
   };
 
-  // Görev silme fonksiyonu (Modal'a taşındı, burası sadece alert)
-  const handleDeleteTask = async () => {
-    alert('Görevi silmek için lütfen görev detaylarına gidin.');
-  };
-
-  // Handle click
   const handleClick = (e) => {
-    if (isDragging) {
-      return;
-    }
-    setShowDetailModal(true);
-  };
-
-  // Sil butonuna tıklama - event propagation'ı durdur
-  const handleDeleteClick = (e) => {
-    e.stopPropagation();
-    // (Silme işlemi artık modal'da)
-    alert('Görevi silmek için lütfen görev detaylarına gidin.');
+    e.stopPropagation(); 
+    if (!isDragging) setShowDetailModal(true);
   };
 
   return (
     <>
-      {/* Drag preview (Sürükleme anındaki hayalet) */}
       {isDragging && (
-        <div
-          ref={dragPreview}
-          className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-3 border-2 border-blue-500 opacity-80"
-          style={{ transform: 'rotate(5deg)' }}
-        >
-          <div className="font-medium text-gray-900 dark:text-white text-sm mb-1">
-            {task.title}
-          </div>
-          {assignedUser && (
-            <div className="flex items-center space-x-1">
-              <div className="w-4 h-4 bg-blue-600 rounded-full flex items-center justify-center text-white text-xs">
-                {assignedUser.name?.charAt(0)}
-              </div>
-              <span className="text-xs text-gray-600 dark:text-gray-400">{assignedUser.name}</span>
-            </div>
-          )}
-          {dateStatus && (
-            <div className={`text-xs px-1 py-0.5 rounded mt-1 ${dateStatus.class}`}>
-              {dateStatus.icon} {new Date(task.due_date).toLocaleDateString('tr-TR')}
-            </div>
-          )}
+        <div ref={dragPreview} className="bg-white dark:bg-gray-800 rounded-[2rem] shadow-2xl p-6 border-2 border-blue-500 opacity-60 scale-105 pointer-events-none" style={{ transform: 'rotate(4deg)' }}>
+          <div className="font-black text-gray-900 dark:text-white text-sm mb-2 uppercase tracking-wide">{task.title}</div>
         </div>
       )}
 
-      {/* Normal task görünümü (Veritabanı sütun adları güncellendi) */}
       <div
-        ref={canDragTask ? drag : null}
-        style={{
-          opacity: isDragging ? 0 : 1,
-          cursor: canDragTask ? 'grab' : 'pointer'
+        ref={(node) => {
+          taskRef.current = node;
+          if (canDragTask) drag(node);
         }}
-        className={`bg-white dark:bg-gray-800 rounded-lg shadow-sm hover:shadow-md dark:hover:shadow-gray-900/70 transition-all p-3 border border-gray-200 dark:border-gray-700 relative group ${isDragging ? 'hidden' : 'block'
-          }`}
+        style={{ opacity: isDragging ? 0 : 1, cursor: canDragTask ? 'grab' : 'pointer' }}
+        className={`bg-white dark:bg-gray-800 rounded-[2rem] p-6 relative overflow-hidden group ${
+          isDragging ? 'hidden' : 'block'
+        } ${
+          isHighlighted 
+            ? 'ring-4 ring-blue-500 shadow-[0_0_40px_rgba(59,130,246,0.6)] scale-[1.03] z-10 transition-all duration-500 border-transparent' 
+            : 'shadow-sm hover:shadow-xl dark:hover:shadow-gray-900/80 transition-all duration-300 border border-gray-100 dark:border-gray-700'
+        }`}
         onClick={handleClick}
       >
-        {/* Sil butonu (Kullanıcı dostu olması için modal'a taşıdık)
-        {canDeleteTask && (
-          <button
-            onClick={handleDeleteClick}
-            className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-6 h-6 ...">
-            ×
-          </button>
-        )}
-        */}
+        <div className={`absolute top-0 left-0 w-2 h-full ${dateStatus?.status === 'overdue' ? 'bg-red-500' : 'bg-blue-500/20'}`}></div>
 
-        <div className="flex justify-between items-start mb-2">
-          <h4 className="font-medium text-gray-900 dark:text-white text-sm leading-tight flex-1 pr-4">
-            {task.title}
-          </h4>
+        <div className="flex justify-between items-start mb-4 pl-2">
+          <h4 className="font-black text-gray-900 dark:text-white text-sm leading-tight flex-1 uppercase tracking-wider group-hover:text-blue-600 transition-colors">{task.title}</h4>
         </div>
 
         {task.description && (
-          <p className="text-gray-600 dark:text-gray-400 text-xs mb-2 line-clamp-2 leading-relaxed">
+          <p className="text-gray-500 dark:text-gray-400 text-[11px] mb-5 font-medium line-clamp-2 leading-relaxed pl-2">
             {task.description}
           </p>
         )}
 
-        {/* Bitiş tarihi ('due_date') */}
-        {dateStatus && (
-          <div className={`flex items-center space-x-1 mb-2 px-2 py-1 rounded text-xs ${dateStatus.class}`}>
-            <span>{dateStatus.icon}</span>
-            <span className="font-medium">
-              {new Date(task.due_date).toLocaleDateString('tr-TR')}
-            </span>
-            <span>•</span>
-            <span>{dateStatus.text}</span>
-          </div>
-        )}
-
-        {/* Atanan Kişi ('assignee_user_id') */}
-        {assignedUser && (
-          <div className="flex items-center space-x-2 mb-2 p-1 bg-blue-50 dark:bg-blue-900/20 rounded">
-            <div className="w-5 h-5 bg-blue-600 rounded-full flex items-center justify-center text-white text-xs font-semibold flex-shrink-0">
-              {assignedUser.name?.charAt(0) || 'U'}
+        <div className="pl-2 space-y-3">
+            {dateStatus && (
+            <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border-2 font-black text-[9px] uppercase tracking-widest ${dateStatus.class}`}>
+                <span>{dateStatus.icon}</span>
+                <span>{new Date(task.due_date).toLocaleDateString('tr-TR')}</span>
+                <span className="opacity-50">•</span>
+                <span>{dateStatus.text}</span>
             </div>
-            <span className="text-xs text-blue-700 dark:text-blue-300 font-medium truncate">
-              {assignedUser.name}
-            </span>
-          </div>
-        )}
+            )}
 
-        <div className="flex justify-between items-center text-xs text-gray-400 dark:text-gray-500">
-          <span className="truncate">
-            {new Date(task.created_at).toLocaleDateString('tr-TR')}
-          </span>
-          <span className="flex-shrink-0">#{task.task_id.slice(-4)}</span>
+            {assignedUser && (
+            <div className="flex items-center gap-3 bg-gray-50 dark:bg-gray-900/50 p-2 rounded-xl border border-gray-100 dark:border-gray-700/50 w-fit pr-4">
+                <div className="w-6 h-6 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-lg flex items-center justify-center text-white text-[10px] font-black shadow-sm">
+                {assignedUser.name?.charAt(0).toUpperCase() || 'U'}
+                </div>
+                <span className="text-[10px] font-black text-gray-700 dark:text-gray-300 uppercase tracking-widest truncate max-w-[120px]">
+                {assignedUser.name}
+                </span>
+            </div>
+            )}
+        </div>
+
+        <div className="flex justify-between items-center text-[10px] font-black text-gray-300 uppercase tracking-widest mt-5 pt-4 border-t border-gray-50 dark:border-gray-700/50 pl-2">
+          <span>{new Date(task.created_at).toLocaleDateString('tr-TR', { day:'numeric', month:'short' })}</span>
+          <span>#{task.task_id.slice(-4)}</span>
         </div>
       </div>
 
-      {/* Task Detail Modal */}
-      <TaskDetailModal
-        task={task}
-        isOpen={showDetailModal}
-        onClose={() => setShowDetailModal(false)}
-        onUpdate={onUpdate}
-        canEdit={canEditTask}
-        canDeleteProp={canDeleteTask} // YENİ: Modal'a silme yetkisini yolluyoruz
-      />
+      {showDetailModal && (
+        <TaskDetailModal task={task} isOpen={showDetailModal} onClose={() => setShowDetailModal(false)} onUpdate={onUpdate} canEdit={canEditTask} canDeleteProp={canDeleteTask} />
+      )}
     </>
   );
 };
