@@ -31,11 +31,11 @@ exports.getMyTasks = async (req, res) => {
     res.status(500).json({ message: 'Sunucu hatası' });
   }
 };
+// api/controllers/taskController.js içindeki createTask fonksiyonunu bul ve şununla değiştir:
 
-// ... (Dosyanın geri kalanı aynı: createTask, updateTaskDetails vb.)
 exports.createTask = async (req, res) => {
   const { 
-    title, status, projectId, assignee, planFileId, 
+    title, description, status, projectId, assignee, planFileId, 
     pinX, pinY, pin3dData, isVisibleToClient, estimatedCost, actualCost 
   } = req.body; 
 
@@ -55,7 +55,7 @@ exports.createTask = async (req, res) => {
     
     const { rows } = await pool.query(query, [
       title, 
-      '', 
+      description || '', // DÜZELTİLDİ: Artık açıklamayı veritabanına yazıyor
       status, 
       projectId, 
       finalAssignee, 

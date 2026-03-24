@@ -3,8 +3,8 @@ import axios from 'axios';
 
 const api = axios.create({
   // API'mizin temel adresi (localhost:5000)
-  baseURL: "https://proaec-api.onrender.com/api", 
-  // baseURL: 'http://localhost:5000/api'
+  // baseURL: "https://proaec-api.onrender.com/api", 
+  baseURL: 'http://localhost:5000/api'
 });
 
 // Bu bir "Interceptor" (Araya Girici)

@@ -1,28 +1,33 @@
 // src/components/Viewer/ViewerContainer.js
 import React, { useState, useEffect } from 'react';
 import FileExplorer from './FileExplorer';
-import ImageMapper from './ImageMapper'; // Kapalıydı, aktif ettim
+import ImageMapper from './ImageMapper'; 
 import PDFMapper from './PDFMapper';
 import ForgeViewer from './ForgeViewer'; 
-import ThreeDMapper from './ThreeDMapper'; // YENİ EKLENDİ
+import ThreeDMapper from './ThreeDMapper'; 
 import api from '../../api/axios';
 
 const ViewerContainer = ({ projectId }) => {
   const [selectedPlan, setSelectedPlan] = useState(null);
   const [tasks, setTasks] = useState([]);
+  const [projectMembers, setProjectMembers] = useState([]); // YENİ
 
-  const fetchTasks = async () => {
+  const fetchTasksAndMembers = async () => {
     try {
       if (!projectId) return;
-      const response = await api.get(`/projects/${projectId}/tasks`);
-      setTasks(response.data);
+      const [tasksRes, membersRes] = await Promise.all([
+        api.get(`/projects/${projectId}/tasks`),
+        api.get(`/projects/${projectId}/members`)
+      ]);
+      setTasks(tasksRes.data);
+      setProjectMembers(membersRes.data);
     } catch (error) { 
-      console.error('Görevler yüklenemedi:', error); 
+      console.error('Veriler yüklenemedi:', error); 
     }
   };
 
   useEffect(() => { 
-    if (projectId) fetchTasks(); 
+    if (projectId) fetchTasksAndMembers(); 
   }, [projectId]);
 
   const renderMapper = () => {
@@ -39,79 +44,17 @@ const ViewerContainer = ({ projectId }) => {
 
     const name = selectedPlan.name.toLowerCase();
 
-    // 1. AUTODESK FORGE (URN Varsa Direkt Bunu Aç)
-    if (selectedPlan.urn) {
-      return (
-        <ForgeViewer 
-          urn={selectedPlan.urn}
-          tasks={tasks}
-          projectId={projectId}
-          planFileId={selectedPlan.file_id}
-          onTaskCreated={fetchTasks}
-        />
-      );
-    }
+    if (selectedPlan.urn) return <ForgeViewer urn={selectedPlan.urn} tasks={tasks} projectId={projectId} planFileId={selectedPlan.file_id} onTaskCreated={fetchTasksAndMembers} projectMembers={projectMembers} />;
+    if (selectedPlan.type?.includes('pdf') || name.endsWith('.pdf')) return <PDFMapper plan={selectedPlan} projectId={projectId} tasks={tasks} onTaskCreated={fetchTasksAndMembers} projectMembers={projectMembers} />;
+    if (name.match(/\.(jpg|jpeg|png|webp)$/)) return <ImageMapper plan={selectedPlan} projectId={projectId} tasks={tasks} onTaskCreated={fetchTasksAndMembers} projectMembers={projectMembers} />;
+    if (name.match(/\.(gltf|glb)$/)) return <ThreeDMapper plan={selectedPlan} projectId={projectId} tasks={tasks} onTaskCreated={fetchTasksAndMembers} projectMembers={projectMembers} />;
 
-    // 2. PDF GÖRÜNTÜLEYİCİ
-    if (selectedPlan.type?.includes('pdf') || name.endsWith('.pdf')) {
-      return (
-        <PDFMapper 
-          plan={selectedPlan} 
-          projectId={projectId} 
-          tasks={tasks} 
-          onTaskCreated={fetchTasks} 
-          onTaskUpdate={fetchTasks} 
-        />
-      );
-    }
-
-    // 3. RESİM GÖRÜNTÜLEYİCİ
-    if (name.match(/\.(jpg|jpeg|png|webp)$/)) {
-      return (
-        <ImageMapper 
-          plan={selectedPlan} 
-          projectId={projectId} 
-          tasks={tasks} 
-          onTaskCreated={fetchTasks} 
-        />
-      );
-    }
-
-    // 4. NATIVE 3D GÖRÜNTÜLEYİCİ (URN YOKSA GLB/GLTF İÇİN)
-    if (name.match(/\.(gltf|glb)$/)) {
-        return (
-            <ThreeDMapper 
-                plan={selectedPlan} 
-                projectId={projectId} 
-                tasks={tasks} 
-                onTaskCreated={fetchTasks} 
-            />
-        );
-    }
-
-    // 5. DESTEKLENMEYEN / URN EKSİK DOSYA (Kalan Tüm CAD formatları)
-    if (name.match(/\.(rvt|dwg|ifc|nwc|skp|ipt|iam|step|stp|obj|fbx)$/)) {
-        return (
-            <div className="h-full flex flex-col items-center justify-center text-gray-500 bg-gray-50 dark:bg-gray-800/50">
-                <div className="text-6xl mb-4">🏗️</div>
-                <h3 className="text-xl font-bold text-gray-700 dark:text-gray-300">Görüntüleme Hazır Değil</h3>
-                <p className="text-sm mt-2 mb-6 max-w-md text-center">
-                    Bu dosya, 3D görüntüleyicisi için gerekli çeviri verisine (URN) sahip değil.
-                    <br/>
-                    Lütfen dosyayı yeni sistem üzerinden <b>tekrar yükleyiniz.</b>
-                </p>
-                <a href={selectedPlan.url} target="_blank" rel="noreferrer" className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-bold flex items-center gap-2 transition-colors">
-                    ⬇️ Orijinal Dosyayı İndir
-                </a>
-            </div>
-        );
-    }
-
-    // Bilinmeyen format
     return (
-        <div className="h-full flex flex-col items-center justify-center text-gray-500">
-            <p className="mb-2">Bu dosya formatı önizlenemez.</p>
-            <a href={selectedPlan.url} className="text-blue-500 underline text-sm font-bold">⬇️ Dosyayı İndir</a>
+        <div className="h-full flex flex-col items-center justify-center text-gray-500 bg-gray-50 dark:bg-gray-800/50">
+            <div className="text-6xl mb-4">🏗️</div>
+            <h3 className="text-xl font-bold text-gray-700 dark:text-gray-300">Görüntüleme Hazır Değil</h3>
+            <p className="text-sm mt-2 mb-6 max-w-md text-center">Bu dosya formatı önizlenemez. Lütfen dosyayı indirin.</p>
+            <a href={selectedPlan.url} target="_blank" rel="noreferrer" className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-bold flex items-center gap-2 transition-colors">⬇️ Dosyayı İndir</a>
         </div>
     );
   };
@@ -119,25 +62,13 @@ const ViewerContainer = ({ projectId }) => {
   return (
     <div className="flex flex-col md:flex-row h-[calc(100vh-200px)] gap-4">
       <div className="w-full md:w-1/4 h-full min-w-[300px]">
-        <FileExplorer 
-          projectId={projectId} 
-          onSelectPlan={(plan) => setSelectedPlan(plan)}
-          selectedPlanId={selectedPlan?.file_id}
-          onUploadSuccess={(newPlans) => {}}
-        />
+        <FileExplorer projectId={projectId} onSelectPlan={(plan) => setSelectedPlan(plan)} selectedPlanId={selectedPlan?.file_id} onUploadSuccess={() => {}} />
       </div>
-
       <div className="flex-1 bg-gray-100 dark:bg-gray-900 rounded-lg border border-gray-300 relative overflow-hidden flex flex-col shadow-inner">
         {selectedPlan && (
             <div className="bg-white dark:bg-gray-800 p-2 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center shadow-sm z-20">
-              <span className="font-semibold text-sm flex items-center gap-2 text-gray-700 dark:text-gray-200">
-                 {selectedPlan.urn ? '🧊 3D Model' : '📄 Dosya'}: {selectedPlan.name}
-              </span>
-              <div className="flex gap-2">
-                 <a href={selectedPlan.url} target="_blank" rel="noreferrer" className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 px-2 py-1 rounded border transition">
-                    ⬇️ İndir
-                 </a>
-              </div>
+              <span className="font-semibold text-sm flex items-center gap-2 text-gray-700 dark:text-gray-200">{selectedPlan.urn ? '🧊 3D Model' : '📄 Dosya'}: {selectedPlan.name}</span>
+              <a href={selectedPlan.url} target="_blank" rel="noreferrer" className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 px-2 py-1 rounded border transition">⬇️ İndir</a>
             </div>
         )}
         <div className="flex-1 relative overflow-hidden w-full h-full">

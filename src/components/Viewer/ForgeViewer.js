@@ -4,71 +4,52 @@ import api from '../../api/axios';
 import { useAuth } from '../../contexts/AuthContext';
 import TaskPin from './TaskPin'; 
 
-const ForgeViewer = ({ urn, tasks, projectId, planFileId, onTaskCreated }) => {
+const ForgeViewer = ({ urn, tasks, projectId, planFileId, onTaskCreated, projectMembers }) => {
   const viewerDivRef = useRef(null);
   const viewerRef = useRef(null);
   const { userData } = useAuth();
   
-  // HTML PİN POZİSYONLARI
   const [overlayPins, setOverlayPins] = useState([]);
-  
   const [isAddingPin, setIsAddingPin] = useState(false);
   const [tempPin, setTempPin] = useState(null);
-  const [newTaskTitle, setNewTaskTitle] = useState('');
 
-  // --- KRİTİK DÜZELTME: REACT CLOSURE TRAP ÇÖZÜMÜ ---
-  // Event listener'ların içindeki state'lerin eski kalmasını engellemek için Ref kullanıyoruz.
+  const [newTaskTitle, setNewTaskTitle] = useState('');
+  const [newTaskDesc, setNewTaskDesc] = useState('');
+  const [newAssignee, setNewAssignee] = useState('');
+
   const tasksRef = useRef(tasks);
   const planFileIdRef = useRef(planFileId);
   const isAddingPinRef = useRef(isAddingPin);
 
-  // State'ler her değiştiğinde Ref'leri güncelliyoruz ki 3D motor her zaman en güncel veriyi görsün
   useEffect(() => { 
       tasksRef.current = tasks; 
       planFileIdRef.current = planFileId;
-      updatePinPositions(); // Veri değiştiği an ekranı tazele
+      updatePinPositions(); 
   }, [tasks, planFileId]);
 
-  useEffect(() => { 
-      isAddingPinRef.current = isAddingPin; 
-  }, [isAddingPin]);
+  useEffect(() => { isAddingPinRef.current = isAddingPin; }, [isAddingPin]);
 
   const getToken = async (callback) => {
-    try { const res = await api.get('/aps/token'); callback(res.data.access_token, res.data.expires_in); } catch (err) { console.error(err); }
+    try { const res = await api.get('/aps/token'); callback(res.data.access_token, res.data.expires_in); } catch (err) {}
   };
 
   const updatePinPositions = () => {
       const viewer = viewerRef.current;
       if (!viewer || !window.THREE) return;
-
-      // DİKKAT: Artık doğrudan tasks değil, tasksRef.current kullanılıyor
       const currentTasks = tasksRef.current.filter(t => t.plan_file_id === planFileIdRef.current);
-      
       const newOverlays = currentTasks.map(task => {
           const z = task.pin_3d_data?.z || task.pin_z || 0;
           const vec = new window.THREE.Vector3(task.pin_x, task.pin_y, z);
           const pos = viewer.worldToClient(vec);
-
-          // Kameranın arkasında kalan pinleri gizlemek için
           let isVisible = true;
-          try {
-             isVisible = viewer.navigation.isPointVisible(vec);
-          } catch(e) { isVisible = true; }
-
-          return {
-              ...task,
-              screenX: pos.x,
-              screenY: pos.y,
-              visible: isVisible
-          };
+          try { isVisible = viewer.navigation.isPointVisible(vec); } catch(e) { }
+          return { ...task, screenX: pos.x, screenY: pos.y, visible: isVisible };
       });
-      
       setOverlayPins(newOverlays);
   };
 
   useEffect(() => {
     if (!window.Autodesk || !viewerDivRef.current) return;
-
     const options = { env: 'AutodeskProduction', api: 'derivativeV2', getAccessToken: getToken };
 
     Autodesk.Viewing.Initializer(options, () => {
@@ -77,28 +58,18 @@ const ForgeViewer = ({ urn, tasks, projectId, planFileId, onTaskCreated }) => {
       viewerRef.current = viewer;
       viewer.setTheme('light-theme');
 
-      // Kamera hareket ettiğinde veya obje yüklendiğinde pinleri yerine oturt
       viewer.addEventListener(Autodesk.Viewing.CAMERA_CHANGE_EVENT, updatePinPositions);
       viewer.addEventListener(Autodesk.Viewing.GEOMETRY_LOADED_EVENT, updatePinPositions);
       
-      // Pin Ekleme (Tıklama) Olayı
       viewer.container.addEventListener('click', (event) => {
-          // DİKKAT: Artık isAddingPin değil, isAddingPinRef.current (Tuzağı bozduk)
           if (!isAddingPinRef.current) return; 
-
           const rect = viewer.container.getBoundingClientRect();
           const x = event.clientX - rect.left;
           const y = event.clientY - rect.top;
           
           const result = viewer.impl.hitTest(x, y, true);
           if (result && result.intersectPoint) {
-              const viewerState = viewer.getState({ viewport: true });
-              setTempPin({
-                  point: result.intersectPoint,
-                  viewerState: viewerState,
-                  screenX: x,
-                  screenY: y
-              });
+              setTempPin({ point: result.intersectPoint, viewerState: viewer.getState({ viewport: true }), screenX: x, screenY: y });
               setIsAddingPin(false);
           }
       });
@@ -121,16 +92,23 @@ const ForgeViewer = ({ urn, tasks, projectId, planFileId, onTaskCreated }) => {
     };
   }, [urn]);
 
+  const handleDeleteTask = async (task) => {
+    if(!window.confirm('Bu pini silmek istediğinize emin misiniz?')) return;
+    try { await api.delete(`/tasks/${task.task_id || task.id}`); if (onTaskCreated) onTaskCreated(); } 
+    catch(e) { alert('Silinemedi'); }
+  };
+
   const saveTask = async () => {
     if (!newTaskTitle.trim() || !tempPin) return;
     try {
         await api.post('/tasks', {
-            title: newTaskTitle, status: 'todo', projectId, planFileId,
+            title: newTaskTitle, description: newTaskDesc, assignee: newAssignee,
+            status: 'todo', projectId, planFileId,
             pinX: tempPin.point.x, pinY: tempPin.point.y, 
             pin3dData: { z: tempPin.point.z, viewerState: tempPin.viewerState },
             isVisibleToClient: userData?.role === 'client'
         });
-        setTempPin(null); setNewTaskTitle('');
+        setTempPin(null); setNewTaskTitle(''); setNewTaskDesc(''); setNewAssignee('');
         if (onTaskCreated) onTaskCreated();
     } catch (error) { alert('Hata: ' + error.message); }
   };
@@ -139,44 +117,37 @@ const ForgeViewer = ({ urn, tasks, projectId, planFileId, onTaskCreated }) => {
     <div className="relative w-full h-full group overflow-hidden bg-gray-100">
       <div ref={viewerDivRef} className="w-full h-full" />
 
-      {/* HTML PİN KATMANI */}
       <div className="absolute inset-0 pointer-events-none z-10 w-full h-full overflow-hidden">
           {overlayPins.map(pin => (
               pin.visible && (
                 <TaskPin 
-                    key={pin.task_id || pin.id}
-                    task={pin}
-                    style={{
-                        position: 'absolute',
-                        left: pin.screenX,
-                        top: pin.screenY,
-                        transform: 'translate(-50%, -50%)', 
-                        pointerEvents: 'auto'
-                    }}
-                    onClick={(t) => {
-                        if(viewerRef.current && t.pin_3d_data?.viewerState) {
-                             viewerRef.current.restoreState(t.pin_3d_data.viewerState);
-                        }
-                    }}
+                    key={pin.task_id || pin.id} task={pin} onDelete={handleDeleteTask}
+                    style={{ position: 'absolute', left: pin.screenX, top: pin.screenY, transform: 'translate(-50%, -50%)', pointerEvents: 'auto' }}
+                    onClick={(t) => { if(viewerRef.current && t.pin_3d_data?.viewerState) viewerRef.current.restoreState(t.pin_3d_data.viewerState); }}
                 />
               )
           ))}
       </div>
 
       <div className="absolute top-4 left-4 z-50 pointer-events-auto">
-         <button onClick={() => setIsAddingPin(!isAddingPin)} className={`px-4 py-2 rounded shadow font-bold text-white transition-colors ${isAddingPin ? 'bg-red-600' : 'bg-blue-600 hover:bg-blue-700'}`}>
-            {isAddingPin ? 'İptal' : 'Pin Ekle'}
+         <button onClick={() => setIsAddingPin(!isAddingPin)} className={`px-5 py-3 rounded-xl font-black text-xs uppercase tracking-widest shadow-xl transition-colors ${isAddingPin ? 'bg-red-600 text-white' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}>
+            {isAddingPin ? 'İptal Et' : '📍 Yeni Pin Ekle'}
          </button>
       </div>
       
       {tempPin && (
-          <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/20 pointer-events-auto backdrop-blur-sm">
-              <div className="bg-white p-4 rounded-xl shadow-2xl w-80 border border-gray-200">
-                  <h3 className="font-bold mb-3 text-gray-800">Yeni Görev</h3>
-                  <input autoFocus className="border border-gray-300 p-2 w-full mb-3 rounded focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Görev Adı..." value={newTaskTitle} onChange={e => setNewTaskTitle(e.target.value)} onKeyDown={e => e.key === 'Enter' && saveTask()}/>
-                  <div className="flex gap-2">
-                      <button onClick={saveTask} className="bg-blue-600 text-white flex-1 py-2 rounded font-medium hover:bg-blue-700">Kaydet</button>
-                      <button onClick={() => setTempPin(null)} className="bg-gray-200 text-gray-700 flex-1 py-2 rounded font-medium hover:bg-gray-300">İptal</button>
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/40 pointer-events-auto backdrop-blur-sm animate-fade-in">
+              <div className="bg-white p-8 rounded-3xl shadow-2xl w-80 animate-slide-in">
+                  <h3 className="font-black text-gray-800 text-center mb-6 uppercase tracking-widest text-sm">YENİ 3D PİN EKLE</h3>
+                  <input autoFocus className="w-full border-b border-gray-200 pb-3 mb-5 text-sm focus:border-blue-500 outline-none transition-colors font-semibold" placeholder="Görev Başlığı *" value={newTaskTitle} onChange={e => setNewTaskTitle(e.target.value)} />
+                  <textarea className="w-full border border-gray-200 rounded-xl p-3 mb-5 text-xs focus:border-blue-500 outline-none resize-none h-20 transition-colors custom-scrollbar" placeholder="Açıklama ve detaylar (Opsiyonel)" value={newTaskDesc} onChange={e => setNewTaskDesc(e.target.value)} />
+                  <select className="w-full border border-gray-200 rounded-xl p-3 mb-6 text-xs focus:border-blue-500 outline-none transition-colors bg-gray-50" value={newAssignee} onChange={e => setNewAssignee(e.target.value)}>
+                     <option value="">Atanacak Kişiyi Seçin...</option>
+                     {projectMembers.map(m => <option key={m.user_id} value={m.user_id}>{m.name} ({m.role})</option>)}
+                  </select>
+                  <div className="flex gap-3">
+                      <button onClick={saveTask} className="flex-1 bg-blue-600 text-white py-3 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-blue-700 shadow-lg shadow-blue-500/20 active:scale-95 transition-all">Kaydet</button>
+                      <button onClick={() => {setTempPin(null); setNewTaskTitle(''); setNewTaskDesc(''); setNewAssignee('');}} className="flex-1 bg-gray-100 text-gray-700 py-3 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-gray-200 active:scale-95 transition-all">İptal</button>
                   </div>
               </div>
           </div>
