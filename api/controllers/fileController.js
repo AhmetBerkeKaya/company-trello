@@ -181,8 +181,7 @@ exports.addProjectPlan = async (req, res) => {
   }
 };
 
-// --- ORTAK İŞLEMLER ---
-
+// DELETE /api/files/:fileId
 exports.deleteFileRecord = async (req, res) => {
   const { fileId } = req.params;
   const { userId, role } = req.user;
@@ -190,6 +189,8 @@ exports.deleteFileRecord = async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    
+    // Dosyayı bul
     const fileQuery = `SELECT uploaded_by_user_id, storage_path, parent_file_id, is_current_version FROM files WHERE file_id = $1 FOR UPDATE`;
     const fileRes = await client.query(fileQuery, [fileId]);
 
@@ -199,6 +200,8 @@ exports.deleteFileRecord = async (req, res) => {
     }
 
     const file = fileRes.rows[0];
+    
+    // Yetki kontrolü: Admin, Manager veya Dosyayı Yükleyen Kişi silebilir
     const canDelete = role === 'admin' || role === 'manager' || file.uploaded_by_user_id === userId;
 
     if (!canDelete) {
@@ -206,21 +209,19 @@ exports.deleteFileRecord = async (req, res) => {
       return res.status(403).json({ message: 'Bu dosyayı silme yetkiniz yok' });
     }
 
-    // YENİ: Silinen dosya 'güncel' ise ve bir 'parent'ı (atası) varsa, atayı tekrar güncel yapabiliriz (Opsiyonel)
-    // Şimdilik sadece siliyoruz, geçmiş koptuğu için zincir bozulabilir ama karmaşıklığı artırmayalım.
-
+    // Veritabanından sil (Eğer klasörse ve içinde dosya varsa DB yapısına göre hata verebilir veya CASCADE ile içindekileri de siler)
     await client.query('DELETE FROM files WHERE file_id = $1', [fileId]);
     await client.query('COMMIT');
 
     res.status(200).json({
-      message: 'Dosya kaydı silindi',
-      storagePath: file.storage_path
+      message: 'Kayıt başarıyla silindi',
+      storagePath: file.storage_path // Frontend'in Firebase'den de silmesi için yolu gönderiyoruz
     });
 
   } catch (error) {
     await client.query('ROLLBACK');
     console.error('Dosya silme hatası:', error);
-    res.status(500).json({ message: 'Sunucu hatası' });
+    res.status(500).json({ message: 'Sunucu hatası, silinemedi.' });
   } finally {
     client.release();
   }
@@ -248,27 +249,6 @@ exports.getFileById = async (req, res) => {
 };
 
 
-exports.deleteFileRecord = async (req, res) => {
-  const { fileId } = req.params;
-
-  try {
-    // 1. Dosya var mı kontrol et (Opsiyonel ama iyi olur)
-    const checkFile = await pool.query('SELECT * FROM files WHERE file_id = $1', [fileId]);
-    if (checkFile.rows.length === 0) {
-      return res.status(404).json({ message: 'Dosya bulunamadı' });
-    }
-
-    // 2. Veritabanından sil
-    // (Not: Frontend zaten Firebase'den siliyor, biz sadece DB kaydını uçuruyoruz)
-    await pool.query('DELETE FROM files WHERE file_id = $1', [fileId]);
-
-    res.status(200).json({ message: 'Dosya kaydı başarıyla silindi' });
-
-  } catch (error) {
-    console.error('Dosya silme hatası:', error);
-    res.status(500).json({ message: 'Sunucu hatası, silinemedi.' });
-  }
-};
 
 
 // KLASÖR OLUŞTURMA

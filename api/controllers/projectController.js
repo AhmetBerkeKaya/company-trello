@@ -4,20 +4,36 @@ const { PROJECT_TYPES } = require('../utils/constants');
 
 // GET /api/projects
 exports.getMyProjects = async (req, res) => {
-  const userId = req.user.userId;
-  const companyId = req.user.companyId;
+  const { userId, role } = req.user;
 
   try {
-    const query = `
-      SELECT p.*, c.name AS company_name
-      FROM projects p
-      JOIN project_users pu ON p.project_id = pu.project_id
-      LEFT JOIN companies c ON p.company_id = c.company_id
-      WHERE pu.user_id = $1
-      ORDER BY p.created_at DESC
-    `;
+    let query;
+    let queryParams;
+
+    // EĞER KULLANICI ADMIN İSE TÜM PROJELERİ GETİR
+    if (role === 'admin') {
+      query = `
+        SELECT p.*, c.name AS company_name
+        FROM projects p
+        LEFT JOIN companies c ON p.company_id = c.company_id
+        ORDER BY p.created_at DESC
+      `;
+      queryParams = [];
+    } 
+    // ADMIN DEĞİLSE SADECE ATANDIĞI PROJELERİ GETİR
+    else {
+      query = `
+        SELECT p.*, c.name AS company_name
+        FROM projects p
+        JOIN project_users pu ON p.project_id = pu.project_id
+        LEFT JOIN companies c ON p.company_id = c.company_id
+        WHERE pu.user_id = $1
+        ORDER BY p.created_at DESC
+      `;
+      queryParams = [userId];
+    }
     
-    const { rows } = await pool.query(query, [userId]);
+    const { rows } = await pool.query(query, queryParams);
     
     const projects = rows.map(p => ({
       ...p,
@@ -449,26 +465,37 @@ exports.updateProject = async (req, res) => {
 exports.updateProjectStatus = async (req, res) => {
   const { projectId } = req.params;
   const { status } = req.body; 
-  const { role, companyId } = req.user; 
+  const { role, userId } = req.user; // userId'yi de çekiyoruz
 
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
 
-    const projectQuery = `SELECT project_id FROM projects WHERE project_id = $1 AND company_id = $2 FOR UPDATE`;
-    const projectRes = await client.query(projectQuery, [projectId, companyId]);
+    // Projeyi ve yöneticisini bul
+    const projectQuery = `SELECT project_id, project_manager, created_by_user_id FROM projects WHERE project_id = $1 FOR UPDATE`;
+    const projectRes = await client.query(projectQuery, [projectId]);
 
     if (projectRes.rows.length === 0) {
       await client.query('ROLLBACK');
       return res.status(404).json({ message: 'Proje bulunamadı' });
     }
 
-    if (role !== 'admin') {
+    const project = projectRes.rows[0];
+
+    // GÜÇLENDİRİLMİŞ YETKİ KONTROLÜ
+    // Admin, Manager, Projeyi Oluşturan veya Atanan Yönetici değiştirebilir
+    const canEdit = 
+        role === 'admin' || 
+        role === 'manager' || 
+        project.created_by_user_id === userId || 
+        project.project_manager === userId;
+
+    if (!canEdit) {
       await client.query('ROLLBACK');
-      return res.status(403).json({ message: 'Proje durumunu sadece Admin değiştirebilir' });
+      return res.status(403).json({ message: 'Proje durumunu değiştirme yetkiniz yok' });
     }
 
-    const completedAt = (status === 'completed') ? 'NOW()' : null;
+    const completedAt = (status === 'completed') ? 'NOW()' : 'NULL';
     
     const updateQuery = `
       UPDATE projects 

@@ -95,7 +95,6 @@ exports.createMeeting = async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    // 1. 'meetings' tablosuna ana kaydı ekle
     const meetingQuery = `
       INSERT INTO meetings (
         title, description, start_time, end_time, location,
@@ -104,9 +103,11 @@ exports.createMeeting = async (req, res) => {
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       RETURNING meeting_id, created_at, start_time
     `;
+    
+    // DÜZELTİLEN KISIM: agenda yerine JSON.stringify(agenda || []) eklendi
     const meetingRes = await client.query(meetingQuery, [
       title, description, startTime, endTime, location,
-      meetingLink, projectId || null, organizerId, agenda
+      meetingLink, projectId || null, organizerId, JSON.stringify(agenda || []) 
     ]);
     
     const newMeetingId = meetingRes.rows[0].meeting_id;
@@ -193,9 +194,11 @@ exports.updateMeeting = async (req, res) => {
       WHERE meeting_id = $9
       RETURNING *
     `;
+    
+    // DÜZELTİLEN KISIM: agenda yerine JSON.stringify(agenda || []) eklendi
     await client.query(updateMeetingQuery, [
       title, description, startTime, endTime, location,
-      meetingLink, projectId || null, agenda, meetingId
+      meetingLink, projectId || null, JSON.stringify(agenda || []), meetingId
     ]);
 
     // 3. Katılımcıları güncelle (Eskileri sil, yenileri ekle)
